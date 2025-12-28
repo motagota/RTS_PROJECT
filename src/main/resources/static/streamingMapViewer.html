@@ -1,0 +1,760 @@
+<html>
+<head>
+    <title>Streaming Map Generator</title>
+    <style>
+        body{
+            font-family: Arial, sans-serif;
+            margin:20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        #controls{
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        button{
+            background: #4CAF50;
+            color: white;
+            border:none;
+            font-size:16px;
+            border-radius:4px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+        button:hover{
+            background: #45a049
+        }
+        button:disabled{
+            background: #666666;
+            cursor: not-allowed;
+        }
+        #canvas {
+            border: 2px solid #444;
+            background: #000;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        #stats {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-family: monospace;
+        }
+
+        .stat-row {
+            margin: 5px 0;
+        }
+
+        .stat-label {
+            color: #888;
+            display: inline-block;
+            width: 150px;
+        }
+
+        .stat-value {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        #progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #333;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        #progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            width: 0%;
+            transition: width 0.1s;
+        }
+
+        .frontier-dot {
+            fill: yellow;
+            opacity: 0.5;
+        }
+
+        #step-progress {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        #current-step {
+            font-family: monospace;
+            color: #4CAF50;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        #step-status {
+            font-family: monospace;
+            color: #888;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+<div id="controls">
+    <h1>Streaming Map Generator</h1>
+
+    <label>
+        Seed: <input type="number" id="seedInput" value="42" style="width: 100px;">
+    </label>
+
+    <label style="margin-left: 20px;">
+        Map Size:
+        <select id="sizeInput">
+            <option value="50">50x50</option>
+            <option value="100" selected>100x100</option>
+            <option value="150">150x150</option>
+            <option value="200">200x200</option>
+        </select>
+    </label>
+
+    <label style="margin-left: 20px;">
+        Players:
+        <select id="playersInput">
+            <option value="2">2 Players</option>
+            <option value="3">3 Players</option>
+            <option value="4">4 Players</option>
+            <option value="6">6 Players</option>
+            <option value="8" selected>8 Players</option>
+        </select>
+    </label>
+
+    <label style="margin-left: 20px;">
+        <input type="checkbox" id="stepModeCheckbox" onchange="toggleStepMode()">
+        Step-by-Step Mode
+    </label>
+
+    <button id="startBtn" onClick="startGeneration()">Start Generation</button>
+    <button id="nextStepBtn" onclick="nextStep()" disabled>Next Step</button>
+
+    <div id="step-progress">
+        <div id="current-step">Ready to start</div>
+        <div id="step-status">-</div>
+    </div>
+
+    <div id="progress-bar">
+        <div id="progress-fill"></div>
+    </div>
+
+</div>
+<canvas id="gameCanvas" width="800" height="800"></canvas>
+
+<div class="stat-label">
+    <span class="stat-label">Status:</span>
+    <span class="stat-value" id="status">Not Connected</span>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas')
+    const ctx = canvas.getContext('2d');
+    let websocket = null;
+    let sessionId = null;
+    let mapSize = 100;
+    let tileSize = 8;
+    let isPaused = false;
+    let updateQueue = [];
+    let updateCount = 0;
+    let currentTotalSteps = 0;
+    let currentStep = 0;
+    let stepByStepMode = false;
+    let waitingForNextStep = false;
+
+    // Binary message type constants (must match BinaryMapEncoder.java)
+    const MSG_STEP_UPDATE = 1;
+    const MSG_BASE_TERRAIN = 2;
+    const MSG_TILE_UPDATE = 3;
+
+    // Terrain type decoding (must match BinaryMapEncoder.java)
+    const TERRAIN_TYPES = [
+        'WATER', 'GRASS', 'DESERT', 'DIRT', 'FOREST',
+        'SNOW', 'BEACH', 'ROCK', 'COLD', 'STONE', 'ROAD', 'NONE'
+    ];
+
+    const OBJECT_TYPES = [
+        null,
+        'GOLD',
+        'STONE',
+        'TREE',
+        'DEER',
+        'BOAR',
+        'SHEEP',
+        'RELIC',
+        'TOWN_CENTER',
+        'HOUSE',
+        'BARRACKS',
+        'BERRIES'
+    ]
+
+    // Status decoding
+    const STATUS_TYPES = ['init', 'step_start', 'step_complete', 'step_skip', 'step_error', 'complete'];
+
+    // Update type decoding
+    const UPDATE_TYPES = ['start', 'progress', 'complete'];
+
+    //==================================================
+    // Binary Message Decoder
+    //==================================================
+
+    function decodeBinaryMessage(arrayBuffer) {
+        const view = new DataView(arrayBuffer);
+        let offset = 0;
+
+        // Read message type (1 byte)
+        const msgType = view.getUint8(offset);
+        offset += 1;
+
+        switch (msgType) {
+            case MSG_STEP_UPDATE:
+                return decodeStepUpdate(view, offset);
+            case MSG_BASE_TERRAIN:
+                return decodeBaseTerrainUpdate(view, offset);
+            case MSG_TILE_UPDATE:
+                return decodeTileUpdate(view, offset);
+            default:
+                console.error('Unknown binary message type:', msgType);
+                return null;
+        }
+    }
+
+    function decodeStepUpdate(view, offset) {
+        const currentStep = view.getInt32(offset);
+        offset += 4;
+        const totalSteps = view.getInt32(offset);
+        offset += 4;
+        const statusCode = view.getUint8(offset);
+        offset += 1;
+        const messageLen = view.getUint16(offset);
+        offset += 2;
+
+        // Decode UTF-8 message string
+        const messageBytes = new Uint8Array(view.buffer, offset, messageLen);
+        const message = new TextDecoder('utf-8').decode(messageBytes);
+
+        return {
+            currentStep,
+            totalSteps,
+            status: STATUS_TYPES[statusCode] || 'unknown',
+            message
+        };
+    }
+
+    function decodeBaseTerrainUpdate(view, offset) {
+        const totalCells = view.getInt32(offset);
+        offset += 4;
+        const tileCount = view.getInt32(offset);
+        offset += 4;
+
+        const tiles = [];
+        for (let i = 0; i < tileCount; i++) {
+            const x = view.getInt16(offset);
+            offset += 2;
+            const y = view.getInt16(offset);
+            offset += 2;
+            const terrainCode = view.getUint8(offset);
+            offset += 1;
+            const objectCode = view.getUint8(offset);
+            offset +=1;
+
+            tiles.push({
+                x,
+                y,
+                terrainType: TERRAIN_TYPES[terrainCode] || 'NONE',
+                object : OBJECT_TYPES[objectCode] || null
+            });
+        }
+
+        return {
+            type: 'base_terrain',
+            totalCells,
+            tiles
+        };
+    }
+
+    function decodeTileUpdate(view, offset) {
+        const updateTypeCode = view.getUint8(offset);
+        offset += 1;
+        const placedtiles = view.getInt32(offset);
+        offset += 4;
+        const targetTiles = view.getInt32(offset);
+        offset += 4;
+        const landId = view.getInt32(offset);
+        offset += 4;
+        const owner = view.getInt32(offset);
+        offset += 4;
+        const tileCount = view.getInt32(offset);
+        offset += 4;
+
+        const tiles = [];
+        for (let i = 0; i < tileCount; i++) {
+            const x = view.getInt16(offset);
+            offset += 2;
+            const y = view.getInt16(offset);
+            offset += 2;
+            const terrainCode = view.getUint8(offset);
+            offset += 1;
+            const objectCode = view.getUint8(offset);
+            offset +=1;
+            const tileLandId = view.getInt32(offset);
+            offset += 4;
+            const tileOwner = view.getInt32(offset);
+            offset += 4;
+
+            tiles.push({
+                x,
+                y,
+                terrainType: TERRAIN_TYPES[terrainCode] || 'NONE',
+                object: OBJECT_TYPES[objectCode]||null,
+                landId: tileLandId,
+                owner: tileOwner === -1 ? null : tileOwner
+            });
+        }
+
+        return {
+            type: UPDATE_TYPES[updateTypeCode] || 'unknown',
+            placedtiles,
+            targetTiles,
+            landId,
+            owner: owner === -1 ? null : owner,
+            tiles
+        };
+    }
+
+    //==================================================
+    // Native WebSocket connection (no STOMP)
+    //==================================================
+
+    function connect(sessionId){
+        // Connect to native WebSocket endpoint
+        const wsUrl = 'ws://localhost:8080/ws/map-generation/' + sessionId;
+        console.log('Connecting to:', wsUrl);
+
+        websocket = new WebSocket(wsUrl);
+        websocket.binaryType = 'arraybuffer'; // Important: receive binary as ArrayBuffer
+
+        websocket.onopen = function(event) {
+            console.log('WebSocket connected');
+            updateStatus('Connected, receiving updates...');
+        };
+
+        websocket.onmessage = function(event) {
+            console.log('=== MESSAGE RECEIVED ===');
+            console.log('Type:', typeof event.data);
+            console.log('Is ArrayBuffer:', event.data instanceof ArrayBuffer);
+
+            if (event.data instanceof ArrayBuffer) {
+                console.log('Binary message size:', event.data.byteLength);
+                console.log('First 10 bytes:', Array.from(new Uint8Array(event.data.slice(0, 10))));
+
+                const update = decodeBinaryMessage(event.data);
+                console.log('Decoded update:', update);
+
+                if (update) {
+                    handleUpdate(update);
+                } else {
+                    console.error('Failed to decode binary message!');
+                }
+            } else {
+                console.error('Received non-binary message:', event.data);
+            }
+        };
+
+        websocket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            updateStatus('WebSocket error!');
+        };
+
+        websocket.onclose = function(event) {
+            console.log('WebSocket closed:', event.code, event.reason);
+            updateStatus('Connection closed');
+        };
+    }
+
+    function disconnect() {
+        if (websocket !== null) {
+            websocket.close();
+            websocket = null;
+        }
+        updateStatus('Disconnected');
+        console.log('Disconnected');
+    }
+    //==================================================
+    // Map Generation
+    //==================================================
+
+    async function startGeneration(){
+
+        const seed = parseInt(document.getElementById('seedInput').value);
+        mapSize = parseInt(document.getElementById('sizeInput').value);
+        const numPlayers = parseInt(document.getElementById('playersInput').value);
+        const updateInterval = 10; // Fixed update interval
+
+        // Calculate tile size to fit canvas
+        tileSize = Math.floor(800 / mapSize);
+
+        // Clear canvas
+        ctx.fillStyle = '#1e3a8a'; // Water color
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Reset progress bar and step display
+        document.getElementById('progress-fill').style.width = '0%';
+        document.getElementById('current-step').textContent = 'Connecting...';
+        document.getElementById('step-status').textContent = 'Waiting for server response';
+        currentStep = 0;
+        currentTotalSteps = 0;
+
+     const rmsScript = `
+base_terrain GRASS
+
+create_player_lands {
+    terrain_type DIRT
+    land_percent 5
+    number_of_players ${numPlayers}
+}
+
+create_object GOLD {
+    number_of_objects 4
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 2
+    max_distance_to_players 5
+}
+
+create_object STONE {
+    number_of_objects 5
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 2
+    max_distance_to_players 5
+}
+
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 2
+    number_of_tiles 30
+    set_place_for_every_player
+    min_distance_to_players 6
+    max_distance_to_players 12
+    clumping_factor 20
+}
+
+create_object BERRIES
+{
+  number_of_objects 6
+  set_place_for_every_player
+  set_tight_grouping
+  min_distance_to_players 5
+  max_distance_to_players 9
+  group_placement_radius 2
+}
+  
+
+            `.trim();
+
+        updateStatus('Starting generation...');
+
+        try{
+            const response = await fetch('http://localhost:8080/api/maps/generate/stream',{
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    rmsScript: rmsScript,
+                    mapSize: mapSize,
+                    seed: seed,
+                    updateInterval: updateInterval,
+                    stepByStep: stepByStepMode
+                })
+            });
+
+            const data = await response.json();
+            sessionId = data.sessionId;
+
+            console.log('Session ID:', sessionId);
+            updateStatus('Connecting to stream...');
+
+            connect(sessionId);
+
+        }catch(error){
+            console.error("Error:", error);
+            updateStatus("Error: " + error.message);
+            document.getElementById('startBtn').disabled = false;
+        }
+    }
+
+     function updateStatus(status){
+
+
+        document.getElementById('status').textContent = status;
+        document.getElementById("startBtn").disabled=true;
+
+    }
+
+    //==================================================
+    // Rendering
+    //==================================================
+
+    const terrainColors = {
+        'WATER': '#1e3a8a',
+        'GRASS': '#22c55e',
+        'DESERT': '#fbbf24',
+        'DIRT': '#92400e',
+        'FOREST': '#15803d',
+        'SNOW': '#e0f2fe',
+        'BEACH': '#fef3c7',
+        'ROCK': '#78716c',
+        'COLD': '#bae6fd',
+        'STONE': '#57534e',
+        'ROAD': '#44403c',
+        'NONE': '#000000'
+    };
+
+    // Player colors (vibrant and distinguishable)
+    const playerColors = [
+        '#3b82f6',  // Blue (Player 0)
+        '#ef4444',  // Red (Player 1)
+        '#22c55e',  // Green (Player 2)
+        '#eab308',  // Yellow (Player 3)
+        '#a855f7',  // Purple (Player 4)
+        '#06b6d4',  // Cyan (Player 5)
+        '#f97316',  // Orange (Player 6)
+        '#ec4899'   // Pink (Player 7)
+    ];
+
+    const objectInfo ={
+        'GOLD': {color: '#FFD700', size :0.6},
+        'STONE': {color: '#808080', size :0.6},
+        'TREE': {color: '#006400', size :0.7},
+        'DEER': {color: '#8B4513', size :0.5},
+        'BOAR': {color: '#654321', size :0.5},
+        'SHEEP': {color: '#F4F5DC', size :0.4},
+        'BERRIES': {color: '#FF1493', size :0.5},
+        'FORAGE': {color: '#FF1493', size :0.5},
+        'BERRY_BUSH': {color: '#FF1493', size :0.5},
+        'RELIC': {color: '#FF00FF', size :0.5},
+        'TOWN_CENTER': {color: '#4169E1', size :0.8},
+        'HOUSE': {color: '#D2691E', size :0.6},
+        'BARRACKS': {color: '#B22222', size :0.7}
+
+    }
+    function handleUpdate(update) {
+        console.log('Received update:', update);
+
+        // Determine update type
+        if (update.currentStep !== undefined && update.totalSteps !== undefined) {
+            // This is a step update from StreamingMapExecutor
+            handleStepUpdate(update);
+        } else if (update.type === 'base_terrain') {
+            // This is a base terrain update
+            handleBaseTerrainUpdate(update);
+        } else if (update.placedtiles !== undefined) {
+            // This is a tile update from StreamingLandGenerator
+            handleTileUpdate(update);
+        } else {
+            console.warn('Unknown update format:', update);
+        }
+    }
+
+    function handleStepUpdate(update) {
+        console.log('Step update:', update.status, update.message);
+
+        currentStep = update.currentStep;
+        currentTotalSteps = update.totalSteps;
+
+        // Update step progress display
+        const stepText = `Step ${update.currentStep} of ${update.totalSteps}`;
+        document.getElementById('current-step').textContent = stepText;
+        document.getElementById('step-status').textContent = update.message;
+
+        // Update status based on step type
+        if (update.status === 'init') {
+            updateStatus('Initializing map generation...');
+            if (stepByStepMode) {
+                waitingForNextStep = true;
+                document.getElementById('nextStepBtn').disabled = false;
+            }
+        } else if (update.status === 'step_start') {
+            updateStatus(`Starting: ${update.message}`);
+        } else if (update.status === 'step_complete') {
+            updateStatus(`Completed: ${update.message}`);
+            if (stepByStepMode && currentStep < currentTotalSteps) {
+                waitingForNextStep = true;
+                document.getElementById('nextStepBtn').disabled = false;
+            }
+        } else if (update.status === 'step_error') {
+            updateStatus(`Error: ${update.message}`);
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('nextStepBtn').disabled = true;
+        } else if (update.status === 'complete') {
+            updateStatus('All commands executed successfully!');
+            document.getElementById('current-step').textContent = 'Complete!';
+            document.getElementById('step-status').textContent = update.message;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('nextStepBtn').disabled = true;
+        }
+    }
+
+    function handleBaseTerrainUpdate(update) {
+        console.log('Base terrain update:', update.tiles.length, 'tiles');
+
+        // Render all tiles in the batch
+        if (update.tiles && update.tiles.length > 0) {
+            update.tiles.forEach(tile => {
+                renderTile(tile.x, tile.y, tile.terrainType, tile.object);
+            });
+        }
+
+        updateStatus(`Setting base terrain...`);
+    }
+
+    function handleTileUpdate(update) {
+        console.log('Tile update:', update.type, 'Placed:', update.placedtiles, '/', update.targetTiles);
+
+        // Detect if this is an object placement update (tiles have objects)
+        const isObjectPlacement = update.tiles && update.tiles.length > 0 &&
+                                   update.tiles.some(tile => tile.object !== null && tile.object !== undefined);
+
+        // Detect if this is a terrain placement update (tiles are FOREST or other special terrain)
+        const isTerrainPlacement = update.tiles && update.tiles.length > 0 &&
+                                    update.tiles.some(tile =>
+                                        tile.terrainType === 'FOREST' ||
+                                        tile.terrainType === 'DESERT' ||
+                                        tile.terrainType === 'SNOW'
+                                    ) && update.landId === 0 && update.owner === null;
+
+        // Update progress bar based on tile placement
+        const progress = (update.placedtiles / update.targetTiles) * 100;
+        document.getElementById('progress-fill').style.width = progress + '%';
+
+        // Render tiles
+        if (update.tiles && update.tiles.length > 0) {
+            update.tiles.forEach(tile => {
+                renderTile(tile.x, tile.y, tile.terrainType, tile.owner, tile.object);
+            });
+        }
+
+        // Update status based on type of update
+        if (isObjectPlacement) {
+            // Object placement updates
+            const objectType = update.tiles.find(t => t.object)?.object || 'objects';
+            if (update.type === 'start') {
+                updateStatus(`Placing ${objectType} objects...`);
+            } else if (update.type === 'progress') {
+                updateStatus(`Placing ${objectType}... ${update.placedtiles}/${update.targetTiles} objects`);
+            } else if (update.type === 'complete') {
+                updateStatus(`Object placement complete! ${update.placedtiles} ${objectType} placed`);
+                // Reset progress bar for next operation
+                document.getElementById('progress-fill').style.width = '0%';
+            }
+        } else if (isTerrainPlacement) {
+            // Terrain placement updates (forests, etc.)
+            const terrainType = update.tiles.find(t => t.terrainType)?.terrainType || 'terrain';
+            if (update.type === 'start') {
+                updateStatus(`Placing ${terrainType} clumps...`);
+            } else if (update.type === 'progress') {
+                updateStatus(`Placing ${terrainType}... ${update.placedtiles}/${update.targetTiles} tiles`);
+            } else if (update.type === 'complete') {
+                updateStatus(`Terrain placement complete! ${update.placedtiles} ${terrainType} tiles placed`);
+                // Reset progress bar for next operation
+                document.getElementById('progress-fill').style.width = '0%';
+            }
+        } else {
+            // Land generation updates
+            if (update.type === 'start') {
+                const ownerText = update.owner !== null && update.owner !== undefined ? ` (Player ${update.owner + 1})` : '';
+                updateStatus(`Land generation started...${ownerText}`);
+            } else if (update.type === 'progress') {
+                const ownerText = update.owner !== null && update.owner !== undefined ? ` (Player ${update.owner + 1})` : '';
+                updateStatus(`Generating land... ${update.placedtiles}/${update.targetTiles} tiles${ownerText}`);
+            } else if (update.type === 'complete') {
+                const ownerText = update.owner !== null && update.owner !== undefined ? ` (Player ${update.owner + 1})` : '';
+                updateStatus(`Land complete! ${update.placedtiles} tiles placed${ownerText}`);
+                // Reset progress bar for next land generation
+                document.getElementById('progress-fill').style.width = '0%';
+            }
+        }
+
+        // Optionally render frontier points (for debugging)
+        // renderFrontier(update.frontier);
+    }
+
+    function renderTile(x, y, terrain, owner, object) {
+        // If tile has an owner (player), use player color; otherwise use terrain color
+        let color;
+        if (owner !== null && owner !== undefined) {
+            color = playerColors[owner] || playerColors[0];
+        } else {
+            color = terrainColors[terrain] || '#000000';
+        }
+
+        ctx.fillStyle = color;
+        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+
+        if ( object && objectInfo[object]){
+            const info = objectInfo[object];
+            const objectSize = tileSize * info.size;
+            const offset = (tileSize - objectSize) / 2;
+
+            ctx.fillStyle = info.color;
+            ctx.beginPath();
+            ctx.arc(
+                x * tileSize + tileSize / 2,
+                y * tileSize + tileSize / 2,
+                objectSize / 2,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = Math.max(1, tileSize / 16);
+            ctx.stroke();
+        }
+    }
+
+    function renderFrontier(frontier) {
+        if (!frontier) return;
+
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+        frontier.forEach(point => {
+            ctx.fillRect(point[0] * tileSize, point[1] * tileSize, tileSize, tileSize);
+        });
+    }
+
+    function toggleStepMode() {
+        stepByStepMode = document.getElementById('stepModeCheckbox').checked;
+        console.log('Step-by-step mode:', stepByStepMode);
+    }
+
+    function nextStep() {
+        if (waitingForNextStep && websocket && sessionId) {
+            console.log('Sending next step command');
+            waitingForNextStep = false;
+            document.getElementById('nextStepBtn').disabled = true;
+
+            // Send text message to continue to next step
+            websocket.send(JSON.stringify({action: 'next-step'}));
+        }
+    }
+
+    // Initialize canvas
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    console.log("Streaming Map Generator initialised");
+    console.log('Click "Start Generation" to begin');
+</script>
+</body>
+</html>
