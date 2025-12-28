@@ -1,0 +1,51 @@
+/* Nomad - Minimal starting resources
+ * Open map with scattered resources, no protected areas
+ * Suitable for 2-8 players
+ */
+
+base_terrain GRASS
+
+create_player_lands {
+    terrain_type DIRT
+    land_percent 4
+    number_of_players 8
+}
+
+/* Starting Gold - Far from spawn for challenging start */
+create_object GOLD {
+    number_of_objects 6
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 15
+    max_distance_to_players 22
+}
+
+/* Starting Stone - Also far */
+create_object STONE {
+    number_of_objects 4
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 18
+    max_distance_to_players 25
+}
+
+/* Berries - Some distance away */
+create_object BERRIES {
+    number_of_objects 6
+    set_place_for_every_player
+    set_tight_grouping
+    min_distance_to_players 12
+    max_distance_to_players 18
+    group_placement_radius 2
+}
+
+/* Scattered small forests - Limited wood */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 15
+    number_of_tiles 25
+    clumping_factor 15
+    spacing_to_other_terrain_types 4
+}

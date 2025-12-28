@@ -1,0 +1,65 @@
+/* Arabia - Classic AoE2 Map
+ * Open map with scattered forests and balanced resources
+ * Suitable for 2-8 players
+ */
+
+base_terrain GRASS
+
+create_player_lands {
+    terrain_type DIRT
+    land_percent 5
+}
+
+/* Place Town Centers at player start positions */
+place_headquarters
+
+/* Starting Gold - Close to TC */
+create_object GOLD {
+    number_of_objects 7
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 10
+    max_distance_to_players 14
+}
+
+/* Starting Stone - Medium distance */
+create_object STONE {
+    number_of_objects 5
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 14
+    max_distance_to_players 18
+}
+
+/* Berries - Early food source */
+create_object BERRIES {
+    number_of_objects 6
+    set_place_for_every_player
+    set_tight_grouping
+    min_distance_to_players 6
+    max_distance_to_players 10
+    group_placement_radius 2
+}
+
+/* Forward woodlines - 2 small forests per player */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 2
+    number_of_tiles 35
+    set_place_for_every_player
+    min_distance_to_players 8
+    max_distance_to_players 14
+    clumping_factor 25
+}
+
+/* Center forests - Neutral woodlines */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 8
+    number_of_tiles 50
+    set_avoid_player_start_areas
+    clumping_factor 20
+    spacing_to_other_terrain_types 3
+}

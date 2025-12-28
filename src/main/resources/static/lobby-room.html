@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lobby Room - RTS Game</title>
+    <link rel="stylesheet" href="css/lobby-room.css">
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="lobbyTitle">Loading...</h1>
+            <button id="leaveBtn" class="btn btn-secondary">← Leave Lobby</button>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Panel - Players -->
+            <div class="left-panel">
+                <div class="players-section">
+                    <h2>Players (<span id="playerCount">0</span>/<span id="maxPlayers">4</span>)</h2>
+                    <div class="player-slots" id="playerSlots">
+                        <!-- Player slots will be generated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Configuration -->
+            <div class="right-panel">
+                <div class="config-section">
+                    <h2>Game Configuration</h2>
+
+                    <div id="hostControls">
+                        <div class="form-group">
+                            <label for="maxPlayersSelect">Max Players:</label>
+                            <div class="player-selector">
+                                <button type="button" class="player-btn" data-players="2">2</button>
+                                <button type="button" class="player-btn active" data-players="4">4</button>
+                                <button type="button" class="player-btn" data-players="6">6</button>
+                                <button type="button" class="player-btn" data-players="8">8</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="mapSelect">Map:</label>
+                            <select id="mapSelect" class="config-input">
+                                <option value="Default Map">Default Map</option>
+                                <option value="Desert Storm">Desert Storm</option>
+                                <option value="Green Valley">Green Valley</option>
+                                <option value="Frozen Tundra">Frozen Tundra</option>
+                                <option value="Urban Warfare">Urban Warfare</option>
+                                <option value="Island Conquest">Island Conquest</option>
+                                <option value="Mountain Pass">Mountain Pass</option>
+                            </select>
+                        </div>
+
+                        <div class="map-preview" id="mapPreview">
+                            <div class="preview-placeholder">Default Map</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Game Settings:</label>
+                            <div class="settings-grid">
+                                <div class="setting-item">
+                                    <label for="startingResources">Starting Resources:</label>
+                                    <select id="startingResources" class="config-input">
+                                        <option value="low">Low</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="unlimited">Unlimited</option>
+                                    </select>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="gameSpeed">Game Speed:</label>
+                                    <select id="gameSpeed" class="config-input">
+                                        <option value="slow">Slow</option>
+                                        <option value="normal" selected>Normal</option>
+                                        <option value="fast">Fast</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="ai-controls-section">
+                            <h3>AI Players</h3>
+                            <div class="ai-control-group">
+                                <select id="aiDifficulty" class="config-input">
+                                    <option value="EASY">Easy</option>
+                                    <option value="MEDIUM" selected>Medium</option>
+                                    <option value="HARD">Hard</option>
+                                </select>
+                                <button id="addAIBtn" class="btn btn-secondary">+ Add AI Player</button>
+                            </div>
+                        </div>
+
+                        <div class="start-section" id="startSection">
+                            <button id="startGameBtn" class="btn btn-start btn-large" disabled>
+                                Start Game
+                            </button>
+                            <p class="start-hint">All players must be ready to start</p>
+                        </div>
+                    </div>
+
+                    <div id="guestMessage" style="display: none;">
+                        <p class="info-message">Waiting for host to configure and start the game...</p>
+                    </div>
+                </div>
+
+                <div class="chat-section">
+                    <h3>Lobby Chat</h3>
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="system-message">Welcome to the lobby! Get ready to play.</div>
+                    </div>
+                    <div class="chat-input-container">
+                        <input type="text" id="chatInput" placeholder="Type a message...">
+                        <button id="sendBtn" class="btn btn-primary">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/lobby-room.js"></script>
+</body>
+</html>

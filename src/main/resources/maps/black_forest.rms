@@ -1,0 +1,63 @@
+/* Black Forest - Dense forest map
+ * Heavy forests throughout with narrow passages
+ * Suitable for 2-8 players
+ */
+
+base_terrain GRASS
+
+create_player_lands {
+    terrain_type DIRT
+    land_percent 7
+    number_of_players 8
+}
+
+/* Starting Gold - Standard distance */
+create_object GOLD {
+    number_of_objects 7
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 11
+    max_distance_to_players 15
+}
+
+/* Starting Stone - Standard distance */
+create_object STONE {
+    number_of_objects 5
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 13
+    max_distance_to_players 17
+}
+
+/* Berries - Standard food */
+create_object BERRIES {
+    number_of_objects 6
+    set_place_for_every_player
+    set_tight_grouping
+    min_distance_to_players 7
+    max_distance_to_players 11
+    group_placement_radius 2
+}
+
+/* Player woodlines - Abundant wood near base */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 4
+    number_of_tiles 60
+    set_place_for_every_player
+    min_distance_to_players 8
+    max_distance_to_players 16
+    clumping_factor 30
+}
+
+/* Dense center forests - Create maze-like terrain */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 20
+    number_of_tiles 70
+    set_avoid_player_start_areas
+    clumping_factor 35
+    spacing_to_other_terrain_types 2
+}

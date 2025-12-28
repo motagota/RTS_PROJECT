@@ -1,0 +1,64 @@
+/* Arena - Defensive map with walls of forest
+ * Players start in protected positions with thick forests
+ * Suitable for 2-8 players
+ */
+
+base_terrain GRASS
+
+create_player_lands {
+    terrain_type DIRT
+    land_percent 6
+    number_of_players 8
+}
+
+/* Starting Gold - Very close for defensive play */
+create_object GOLD {
+    number_of_objects 7
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 8
+    max_distance_to_players 12
+}
+
+/* Starting Stone - Close */
+create_object STONE {
+    number_of_objects 5
+    group_placement_radius 2
+    set_tight_grouping
+    set_place_for_every_player
+    min_distance_to_players 10
+    max_distance_to_players 14
+}
+
+/* Berries - Close food */
+create_object BERRIES {
+    number_of_objects 6
+    set_place_for_every_player
+    set_tight_grouping
+    min_distance_to_players 5
+    max_distance_to_players 8
+    group_placement_radius 2
+}
+
+/* Inner woodlines - Protected resources */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 3
+    number_of_tiles 40
+    set_place_for_every_player
+    min_distance_to_players 6
+    max_distance_to_players 10
+    clumping_factor 30
+}
+
+/* Defensive forest wall - Large forests around players */
+create_terrain FOREST {
+    base_terrain GRASS
+    number_of_clumps 4
+    number_of_tiles 80
+    set_place_for_every_player
+    min_distance_to_players 15
+    max_distance_to_players 22
+    clumping_factor 35
+}

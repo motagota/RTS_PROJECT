@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTS Game - Lobby Browser</title>
+    <link rel="stylesheet" href="css/lobby.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>RTS Game Lobby</h1>
+            <div class="player-info">
+                <span id="playerNameDisplay">Guest</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="search-section">
+                    <h2>Find Lobby</h2>
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search lobbies...">
+                        <button id="searchBtn" class="btn btn-secondary">Search</button>
+                        <button id="refreshBtn" class="btn btn-secondary">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="lobby-list-section">
+                    <h3>Available Lobbies</h3>
+                    <div id="lobbyList" class="lobby-list">
+                        <div class="loading">Loading lobbies...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="create-lobby-section">
+                    <h2>Quick Actions</h2>
+                    <button id="createLobbyBtn" class="btn btn-primary btn-large">
+                        Create New Lobby
+                    </button>
+                    <p class="action-description">Set up a new game lobby with custom settings</p>
+                </div>
+
+                <div class="info-panel">
+                    <h3>Game Info</h3>
+                    <ul>
+                        <li>Real-Time Strategy Game</li>
+                        <li>Resource Management</li>
+                        <li>Unit Control</li>
+                        <li>Multiplayer Support</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="joinModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Join Lobby</h2>
+            <div id="modalLobbyInfo"></div>
+            <form id="joinLobbyForm">
+                <div class="form-group">
+                    <label for="joinPlayerName">Your Name:</label>
+                    <input type="text" id="joinPlayerName" required placeholder="Enter your name">
+                </div>
+                <div class="form-group" id="joinPasswordGroup" style="display: none;">
+                    <label for="joinPassword">Password:</label>
+                    <input type="password" id="joinPassword" placeholder="Enter lobby password">
+                </div>
+                <button type="submit" class="btn btn-primary">Join Game</button>
+            </form>
+            <div id="joinMessage" class="message"></div>
+        </div>
+    </div>
+
+    <script src="js/lobby.js"></script>
+</body>
+</html>

@@ -1,0 +1,548 @@
+
+<html>
+    <head>
+        <title>My Web Page</title>
+        <style>
+            body {
+                margin:0;
+                background:#111;
+                font-family: monospace;
+            }
+            #canvas {
+                border:1px solid #555;
+                display:block;
+                margin: 0 auto;
+            }
+            #ui {                
+                color: #eee;
+                padding:6px;
+                text-align: center;
+            }
+            button {
+                height:30px;
+                width: 80%;
+                background: #222;
+                border: 1px solid #555;
+                color: #eee;
+                font-size: 14px;
+                padding: 6px 12px;
+                margin: 2px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="ui">
+
+        </div>
+
+        <canvas id="canvas">
+
+        </canvas>
+
+        <script>
+            let lastTime = performance.now();
+            let fps = 0;
+
+            const TILE=6, GW=200, GH=140;
+            const canvas = document.getElementById("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = TILE * GW;
+            canvas.height = TILE * GH;
+
+            let grid = Array(GH).fill().map(()=>Array(GW).fill(0));
+            let oreMap = Array(GH).fill().map(()=>Array(GW).fill(0));
+            let oreReserved = Array(GH).fill().map(()=>Array(GW).fill(false));
+
+            const harvesters = [];
+
+            class Harvester {
+                constructor(hx, hy){
+                    this.x = hx;
+                    this.y = hy;
+                    this.tick = 0;
+                    this.speed =45;
+                    this.targetOre = null;
+                    this.searchRadius = 50;
+                    this.carry = false;
+                    
+                }
+
+                async update(){
+                    this.tick++;
+                    if(this.tick< this.speed) return;
+                    this.tick=0;
+
+                    if( this.carry){
+                        await this.goHome();
+             
+                        return;
+                    }
+
+                     if (!this.targetOre || oreMap[this.targetOre.y][this.targetOre.x] === 0) {
+                        if (this.targetOre) {
+                            oreReserved[this.targetOre.y][this.targetOre.x] = false;
+                        }
+            
+                        this.targetOre = this.findNearestOre();
+                        if (!this.targetOre) return;
+            
+                        oreReserved[this.targetOre.y][this.targetOre.x] = true;
+                    }
+
+                    const dx = Math.sign(this.targetOre.x - this.x);
+                    const dy = Math.sign(this.targetOre.y - this.y);
+                    
+                    let moved = false;
+                    if (this.cachedPath && this.cachedPath.length > 0) {
+                        const step = this.cachedPath[0];
+                        if (!hasHarvester(step.x, step.y, this.id)) {
+                            this.x = step.x;
+                            this.y = step.y;
+                            this.cachedPath.shift(); 
+                            moved = true;
+                            this.stuckCounter = 0;
+                        } else {
+            
+                            this.cachedPath = null;
+                            this.stuckCounter = (this.stuckCounter || 0) + 1;
+                        }
+                    } else {
+                        if (dx !== 0 && this.canMoveTo(this.x + dx, this.y)) {
+                            this.x += dx;
+                            moved = true;
+                        } else if (dy !== 0 && this.canMoveTo(this.x, this.y + dy)) {
+                            this.y += dy;
+                            moved = true;
+                        }else if (dy !== 0 && this.canMoveTo(this.x, this.y + dy)) {
+                            this.y += dy;
+                            moved = true;
+                        } else if (dx !== 0 && this.canMoveTo(this.x + dx, this.y)) {
+                            this.x += dx;
+                            moved = true;
+                        }
+                        else if (dx !== 0 && dy !== 0 && this.canMoveTo(this.x + dx, this.y + dy)) {
+                            this.x += dx;
+                            this.y += dy;
+                            moved = true;
+                        }
+
+                    }
+                    
+
+                    if (this.x === this.targetOre.x && this.y === this.targetOre.y) {
+                        oreMap[this.targetOre.y][this.targetOre.x] = 0;
+                        oreReserved[this.targetOre.y][this.targetOre.x] = false;
+                        this.targetOre = null;
+                        this.carry = true;
+                    }
+                    if (!moved) {
+                        this.stuckCounter = (this.stuckCounter || 0) + 1;
+                    if (this.stuckCounter > randInt(10, 15) &&(!this.cachedPath || this.cachedPath.length === 0)) {
+
+                        this.cachedPath = await this.nextStepTowards(this.targetOre.x, this.targetOre.y,true);
+                        if (!this.cachedPath || this.cachedPath.length === 0) {                 
+    
+                            oreReserved[this.targetOre.y][this.targetOre.x] = false;
+                            this.targetOre = null;
+                            this.stuckCounter = 0;
+                            this.tick = -randInt(1, 5);       
+                        }
+                    }
+                
+                } else {
+                    this.stuckCounter = 0;
+                }
+        }  separationForce() {
+    let fx = 0, fy = 0;
+
+    for (const h of harvesters) {
+        if (h === this) continue;
+
+        const dx = this.x - h.x;
+        const dy = this.y - h.y;
+
+        // squared distance
+        const d2 = dx*dx + dy*dy;
+
+        // only push away if within 2 tiles
+        if (d2 > 0 && d2 < 4) {
+            fx += dx;
+            fy += dy;
+        }
+    }
+
+    return { fx, fy };
+}
+        async goHome() {
+    const hb = this.findHomeBase();
+    if (!hb) return;
+
+    if (!this.homeTarget || this.homeTarget.x !== hb.x || this.homeTarget.y !== hb.y) {
+        this.homeTarget = {x: hb.x, y: hb.y};
+    }
+
+    // separation (VERY important!)
+    const sep = this.separationForce();
+
+    let moved = false;
+
+    // Follow cached path
+    if (this.cachedPath && this.cachedPath.length > 0) {
+        const step = this.cachedPath[0];
+        if (!hasHarvester(step.x, step.y)) {
+            this.x = step.x;
+            this.y = step.y;
+            this.cachedPath.shift();
+            moved = true;
+            this.stuckCounter = 0;
+        } else {
+            this.cachedPath = null;
+            this.stuckCounter = (this.stuckCounter || 0) + 1;
+        }
+    }
+
+    // Direct movement, blended with separation
+    if (!moved) {
+        const homeDx = Math.sign(this.homeTarget.x - this.x);
+        const homeDy = Math.sign(this.homeTarget.y - this.y);
+
+        // steer away from neighbors
+        const dx = Math.sign(homeDx + sep.fx * 0.5);
+        const dy = Math.sign(homeDy + sep.fy * 0.5);
+
+        if (dx !== 0 && this.canMoveTo(this.x + dx, this.y)) {
+            this.x += dx;
+            moved = true;
+
+        } else if (dy !== 0 && this.canMoveTo(this.x, this.y + dy)) {
+            this.y += dy;
+            moved = true;
+
+        } else if (dx !== 0 && dy !== 0 && this.canMoveTo(this.x + dx, this.y + dy)) {
+            this.x += dx;
+            this.y += dy;
+            moved = true;
+        }
+    }
+
+    // Stuck → get a full A* path
+    if (!moved) {
+        this.stuckCounter = (this.stuckCounter || 0) + 1;
+
+        if (this.stuckCounter > randInt(10, 15) &&
+            (!this.cachedPath || this.cachedPath.length === 0)) {
+
+            this.cachedPath = await this.nextStepTowards(
+                this.homeTarget.x,
+                this.homeTarget.y,
+                true
+            );
+
+            if (!this.cachedPath || this.cachedPath.length === 0) {
+                this.stuckCounter = 0;
+                this.carry = false;
+                this.tick = -randInt(1, 5);
+            }
+        }
+    } else {
+        this.stuckCounter = 0;
+    }
+
+    // Arrived
+    if (this.x === this.homeTarget.x && this.y === this.homeTarget.y) {
+        this.carry = false;
+        this.homeTarget = null;
+        this.cachedPath = null;
+        this.stuckCounter = 0;
+    }
+}
+            findHomeBase(){
+                for(let y=0;y<GH;y++)for(let x=0;x<GW;x++)if(grid[y][x]==='H')return{x,y};
+                return null;
+            }
+            canMoveTo(x, y) {
+                if (x < 0 || x >= GW || y < 0 || y >= GH) return false;
+                if (grid[y][x] === 'X') return false;
+                if (hasHarvester(x, y, this.id)) return false;
+                return true;            
+            }
+                
+                async nextStepTowards(gx, gy, fullpath = false, debug=false){
+                    const start = {x: this.x, y: this.y};
+                    const goal = {x: gx, y: gy};
+
+                     const dx = Math.abs(gx - this.x);
+                    const dy = Math.abs(gy - this.y);
+                    if(dx + dy === 1) return goal;
+
+                    const closed = Array(GH).fill().map(()=>Array(GW).fill(false));
+                    const open = [{...start,g:0,h:Math.hypot(gx - this.x, gy - this.y), f:0, parent:null}];
+
+                    const dirs = [[1, 0],[-1, 0],[0, 1],[0,-1]];
+                    const visulaize = async ( current, neighbors=[])=>{
+                        if ( !debug) return;
+                        
+                        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                        ctx.fillRect(0,0, canvas.width, canvas.height);
+
+                        // all ready explored
+                        ctx.fillStyle = "rgba(100,100,100,0.3)";
+                        for ( let y=0; y<GH; y++){
+                            for (let x=0; x<GW; x++){
+                                if( closed[y][x]){
+                                    ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+                                }
+                            }
+                        }
+
+                        // open cells ( the frontier)
+
+                        ctx.fillStyle = "rgba(0,255,0,0.3)";
+                        for( const node of open){
+                            ctx.fillRect(node.x * TILE, node.y * TILE, TILE, TILE); 
+                        }
+
+                        // Draw neighbors being examined
+                        ctx.fillStyle = "rgba(255,255,0,0.3)";
+                        for( const {x,y} of neighbors){
+                            ctx.fillRect(x * TILE, y * TILE, TILE, TILE); 
+                        }   
+
+                        // draw current
+                        ctx.fillStyle = "rgba(0,0,255,0.3)";
+                        ctx.fillRect(current.x * TILE, current.y * TILE, TILE, TILE);
+
+                        // draw start and goal
+                        ctx.fillStyle = "blue";
+                        ctx.fillRect(start.x * TILE, start.y * TILE, TILE, TILE);
+                        ctx.fillStyle = "purple";
+                        ctx.fillRect(goal.x * TILE, goal.y * TILE, TILE, TILE);
+                        await new Promise(r=>setTimeout(r, 50));
+
+
+                    };
+                    while ( open.length){
+                        open.sort((a,b)=>(a.g + a.h) - (b.g + b.h));
+                        const current = open.shift();
+                        if( current.x === goal.x && current.y === goal.y){
+
+                            if ( debug){
+                                const path = [];
+                                let node = current;
+                                while(node){
+                                    path.push(node);
+                                    node = node.parent;
+                                }
+                                ctx.strokeStyle = "cyan";
+                                ctx.lineWidth =3;
+                                ctx.beginPath();
+                                ctx.moveTo(path[path.length -1].x * TILE + TILE/2, path[path.length -1].y * TILE + TILE/2);
+
+                                for( let i=path.length -2; i>=0; i--){
+                                    ctx.lineTo(path[i].x * TILE + TILE/2, path[i].y * TILE + TILE/2);
+                                }
+                                ctx.stroke();
+
+                                await new Promise(r=>setTimeout(r, 500));
+                            }
+                            if( fullpath){
+                                 const path = [];
+                                let node = current;
+                                while(node.parent){
+                                    path.unshift({x: node.x, y: node.y});
+                                    node = node.parent;
+                                }
+                                return path;
+                            }else{
+                                let node = current;
+                                while( node.parent && node.parent.parent) node= node.parent;
+                                return node;
+                            }
+                        }
+                        closed[current.y][current.x] = true;
+                        const neighbors = [];
+                        for( const[dx,dy] of dirs){
+                            const nx = current.x + dx;
+                            const ny = current.y + dy;
+                            if( nx<0 || nx>= GW || ny<0 || ny>= GH) continue;
+                            if( closed[ny][nx]) continue;
+                            if( grid[ny][nx] === 'X' || hasHarvester(nx, ny)) continue; 
+                            if( oreMap[ny][nx] && !(nx === goal.x && ny === goal.y)) continue;
+                            neighbors.push({x: nx, y: ny});
+
+                            const ng = current.g +1;
+                            let neighbor = open.find(n=>n.x===nx && n.y===ny);
+                            if( !neighbor){
+                                neighbor = {x:nx, y:ny, g:ng, h: Math.hypot(goal.x - nx, goal.y- ny), parent: current};
+                                open.push(neighbor);
+                                
+                            }else if( ng < neighbor.g){
+                                neighbor.g = ng;
+                                neighbor.parent = current;
+                            }
+                        }
+                        await visulaize(current, neighbors);
+                    }
+                    return null;
+                }
+
+                findNearestOre(){
+                    let best = null;
+                    let bestD = Infinity;
+                    for( let y=0; y<GH; y++){
+                        for (let x=0; x<GW; x++){
+                            if( oreMap[y][x] && !oreReserved[y][x]){
+                                const d = Math.hypot(x-this.x, y-this.y);
+                                if (d< bestD){
+                                    bestD=d;
+                                    best = {x,y};
+                                }
+                            }
+                        }
+                    }
+                    return best;
+                }
+
+                draw(){
+                    ctx.fillStyle = "#ff0";
+                    ctx.beginPath();
+                    ctx.arc(this.x * TILE + TILE/2, this.y * TILE + TILE/2, 3, 0, Math.PI *2);
+                    ctx.fill();
+
+                    if ( this.targetOre ){
+                        ctx.strokeStyle = "#ff0";
+                        ctx.beginPath();
+                        ctx.moveTo(this.x * TILE + TILE/2, this.y * TILE + TILE/2);
+                        ctx.lineTo(this.targetOre.x * TILE + TILE/2, this.targetOre.y * TILE + TILE/2);
+                        ctx.stroke();
+                    }   
+                }
+            }
+            function hasHarvester(x, y) {
+                return harvesters.some(h => h.x === x && h.y === y);
+            }
+
+            function randInt(min, max){
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+            for ( let y=0; y<GH; y++){
+                for (let x=0; x<GW; x++){
+                    if( randInt(0,100)<8) oreMap[y][x] = 1;
+                    else if (randInt(0,100)<4) grid[y][x] = 'X'
+                }
+            }
+
+            function drawTile(x, y, c, txt){
+                ctx.fillStyle = c;
+                ctx.fillRect(x*TILE, y*TILE, TILE, TILE);
+                if(txt){
+                    ctx.fillStyle = "#fff";
+                    ctx.font = "7px monospace";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(txt, x*TILE + 6, y*TILE + 18);
+                }
+            }
+
+            function draw(){
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                //draw ground
+                for( let y=0; y<GH; y++){
+                    for (let x=0; x<GW; x++){
+                        drawTile(x,y, '#2a2a2a','')
+
+                        if( oreMap[y][x]) drawTile(x,y, '#d4940f','*');
+                        if( grid[y][x] === 'X') drawTile(x,y, '#444','X');                    
+                        if( grid[y][x] === 'H') drawTile(x,y, 'blue','H');       
+                    }
+                }
+                //draw grid
+                ctx.strokeStyle = "#000";
+                for(let x=0; x<=GW; x++){
+                    ctx.beginPath();
+                    ctx.moveTo(x*TILE, 0);
+                    ctx.lineTo(x*TILE, canvas.height);
+                    ctx.stroke();
+                }
+
+                for( let y=0; y<=GH; y++){
+                    ctx.beginPath();
+                    ctx.moveTo(0, y*TILE);
+                    ctx.lineTo(canvas.width, y*TILE);
+                    ctx.stroke();
+                }
+
+                // draw harvesters
+                harvesters.forEach(h=>h.draw());
+
+                // Draw FPS
+                ctx.fillStyle = "#0f0";
+                ctx.font = "16px monospace";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "top";
+                ctx.fillText(`FPS: ${fps}`, 10, 10);
+
+            }
+
+            for( let i=0; i<100; i++){
+                let gx = randInt(10, GW-10);
+                let gy = randInt(10, GH-10);
+                if( grid[gy][gx] !== 'X' && !oreMap[gy][gx]) {
+                    harvesters.push(new Harvester(gx, gy));
+                    grid[gy][gx] = 'H';
+                } else {
+                    i--; 
+                }
+            }
+
+            
+            function buildFlowFieldToHome() {
+    const q = [];
+    const dist = Array(GH).fill().map(() => Array(GW).fill(Infinity));
+
+    // find home base
+    let hb = null;
+    for (let y=0; y<GH; y++)
+        for (let x=0; x<GW; x++)
+            if (grid[y][x] === 'H') hb = {x,y};
+
+    dist[hb.y][hb.x] = 0;
+    q.push(hb);
+
+    const dirs = [[1,0], [-1,0], [0,1], [0,-1]];
+
+    while (q.length) {
+        const {x,y} = q.shift();
+        for (const [dx,dy] of dirs) {
+            const nx = x+dx, ny = y+dy;
+            if (nx<0||nx>=GW||ny<0||ny>=GH) continue;
+            if (grid[ny][nx] === 'X') continue;
+            if (dist[ny][nx] > dist[y][x] + 1) {
+                dist[ny][nx] = dist[y][x] + 1;
+                q.push({x:nx, y:ny});
+            }
+        }
+    }
+    return dist;
+}
+       let homeFlow = buildFlowFieldToHome();     
+            async function gameLoop(){
+                const now = performance.now();
+                const delta = now - lastTime;
+                lastTime = now;
+                fps = Math.round(1000 / delta);
+
+                for(const h of harvesters) {
+                    await h.update(); 
+                }
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+
+            gameLoop();
+        </script>
+    </body>
+</html>

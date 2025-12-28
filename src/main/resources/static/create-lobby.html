@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Lobby - RTS Game</title>
+    <link rel="stylesheet" href="css/create-lobby.css">
+</head>
+<body>
+    <div class="create-container">
+        <div class="create-modal">
+            <div class="modal-header">
+                <h1>Create New Lobby</h1>
+                <button id="backBtn" class="close-btn">×</button>
+            </div>
+
+            <form id="quickCreateForm">
+                <div class="form-group">
+                    <label for="hostName">Your Name:</label>
+                    <input type="text" id="hostName" required placeholder="Enter your name" autofocus>
+                </div>
+
+                <div class="form-group">
+                    <label for="lobbyName">Lobby Name:</label>
+                    <input type="text" id="lobbyName" required placeholder="Enter lobby name">
+                </div>
+
+                <div class="form-group">
+                    <label for="mapSelect">Map:</label>
+                    <select id="mapSelect" required>
+                        <option value="">Loading maps...</option>
+                    </select>
+                    <div id="mapDescription" class="map-description"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="maxPlayers">Max Players:</label>
+                    <select id="maxPlayers" required>
+                        <option value="2">2 Players</option>
+                        <option value="4" selected>4 Players</option>
+                        <option value="6">6 Players</option>
+                        <option value="8">8 Players</option>
+                    </select>
+                </div>
+
+                <div id="createMessage" class="message"></div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary btn-large">Create Lobby</button>
+                    <button type="button" id="cancelBtn" class="btn btn-secondary btn-large">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/create-lobby.js"></script>
+</body>
+</html>

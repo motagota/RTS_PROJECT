@@ -1,0 +1,354 @@
+<html>
+    <head>
+        <title>Map Generator</title>    
+        
+        <style>
+            :root {--ui-bg: #f7f7f8;  --panel:#ffffff; --muted:#666666; --accent:#0b5cff}          
+            body{ margin:12px;font-family:Inter, system-ui; background:var(--ui-bg); color:#222}
+            .wrap{ display:grid; grid-template-columns: 420px 1fr; gap: 12px; align-items: start;}
+            .pannel{ background: var(--panel); border-radius:8px; padding:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+            textarea{ width:100%; height:260px; font-family: monospace; font-size:12px;  border-radius:6px; padding:8px;}
+            .controls{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px;}
+            label{ font: size 12px; color:var(--muted); display:flex; gap:6px; align-items:center}
+            input[type="number"], select, input[type="text"]{padding:6px 8px; border-radius:6px; border:1px solid #d0d0d5; }
+            button{padding:8px 10px; border-radius:6px; border:0; background:var(--accent); color:#fff; cursor:pointer;}
+            button.ghost{ background:#e9eefc; color:var(--accent); border:1px solid rgba(11, 92,255,0.12)}
+            button:disabled{opacity:0.5; cursor:not-allowed;}
+            .small{padding:6px 8px; font-size:13px;}
+            #mapWrap{display:flex; gap:12px}
+            canvas{image-rendering: pixelated; border-radius:6px; border:1px solid #ddd; background:#111;}
+            .rightTop{ display:flex; gap:8px; align-items:center; margin-bottom: 8px;}
+
+            .astList{height:220px; overflow:auto;border-radius:6px;border:1px solid #e5e5e7; padding:8px; font-family: monospace;font-size: 13px;background: #fafafa;}
+            .astItem{padding:6px;; border-radius:6px; cursor:pointer;}
+            .infoBox{font-size: 13px; color:var(--muted); margin-top:8px}
+            .legend{display:flex; display:flex; gap:8px; flex-wrap:wrap; margin-top:8px}
+            .legendItem{ display:flex; gap:4px; align-items:center; font-size:12px; color:var(--muted);}
+            .tileInfo{ background:#fff; padding:8px; border:1px solid #eee; font-family:monospace; font-size:13px;border-radius: 6px;margin-top:8px}
+
+            .controlsRow{ display: flex; gap: 8px; align-items: center; margin-top: 8px;}
+            .slider{ width:100px;}
+            .status{padding:8px; border-radius: 6px; margin-top:8px; font-size: 13px;}
+
+        </style>
+    </head>
+    <body>
+        <div class ="wrap">
+            <div class ="pannel">
+                <h3>Map Generator</h3>
+                <div> 
+                    This is a placeholder for the map generator interface.
+                </div>
+                <label>
+                    RMS script
+                    (paste or edit)
+                </label>
+                <textarea id="rmsInput">
+// RMS script goes here
+base_terrain GRASS
+create_player_lands{
+    terrain_type DIRT
+    land_percent 18
+    base_size 6
+    circle_radius 20 10
+}
+
+create_land{
+    terrain_type WATER
+    land_percent 95
+    land_id 99
+}
+
+<CONNECTION_GENERATION>
+create_connect_all_player_lands{
+    default_terrain_replacement ROAD
+}
+
+<OBJECTS_GENERATION>
+create_object GOLD {
+    number_of_objects 8
+    number_of_groups 4
+    set_scaling_to_map_size
+}
+
+
+</textarea>
+
+                <div class="controls">
+                    <label>Map size
+                        <select id="mapSize"> 
+                            <option value="144">Small (3 players)</option>
+                            <option value="168">Medium (4 players)</option>
+                            <option value="200">Normal (6 players)</option>
+                            <option value="220">Large (8 players)</option>
+                            <option value="240">Giant</option>
+                            <option value="480">LudiKRIS</option>
+                        </select>
+                    </label>
+
+                    <label>Seed <input type="number" id="seed" value="42" style="width: 90px;"></label>
+
+                    <button id="btnGenerate" class="small">Generate Map</button>
+                    <button id="btnReset" class ="small ghost">Reset</button>
+                </div>
+
+                <div id="statusBox"></div>
+
+                <div class="controlsRow">
+                    <button id="btnStepBack" class="small ghost">< Step</button>
+                    <button id="btnPlay" class="small">Play ></button>
+                    <button id="btnStepForward" class="small">Step ></button>
+
+                    <div>
+                        <input id="stepSlider" type="range" min="0" max="0" value="0" class="slider"/>
+                        <div>
+                            Step: <span id="stepIndex">0</span> / <span id="maxStep">0</span>
+                        </div>
+                    </div>
+                    <label style="font-size:13px;">
+                        <input type="checkbox" id="showGrid" />
+                        Show Grid
+                    </label>
+                    <button id="btnExport" class="small">Export PNG</button>
+                </div>
+
+                <div style="display:flex;gap: 8px;margin-top: 8px;">
+                    <div style="flex:1">
+                        <div class="infoBox">AST (commands)</div>
+                        <div id="astList" class ="astList"></div>
+                    </div>
+                    <div style="width:200px">
+                        <div class="infoBox">Tile Inspector</div>
+                        <div id="tileInfo" class ="titleInfo">Click map title to inspect</div>
+                        
+                        <div style="margin-top:8px" class="infoBox">Legend</div>
+                        <div id="legend" class ="legend"><Legend></Legend></div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <div class="panel" style="padding:8px">
+                    <div class="rightTop"> 
+                        <div>
+                            <strong id="mapTitle">Map Preview</strong>
+                            <div>Click tiles to inspect</div>
+                        </div>
+                    </div>
+                    <div>
+                        <canvas id="mapCanvas" width="800" height="800" ></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+
+        <script>
+            const TERRAIN_COLORS = {
+                GRASS: '#66B266',
+                DIRT:'#b28b53'
+            };
+
+            let currentRun = null;
+            let currentStep = 0;
+
+            function showStatus(message, type='info'){
+                const statusBox = document.getElementById('statusBox');
+                statusBox.innerHTML = `<div class="status ${type}">${message}</div>`
+                if( type !== 'error'){
+                    setTimeout(() => statusBox.innerHTML = '', 5000)
+                }
+            }
+
+            function terrainColor(terrainType){
+                return TERRAIN_COLORS[terrainType] || '#999';
+            }
+
+            function drawLegend(){
+                const legendDiv = document.getElementById("legend");
+                legendDiv.innerHTML = '';
+                for(const k in TERRAIN_COLORS){
+                    const el = document.createElement("div");
+                    el.className = "legendItem";
+                    el.innerHTML = `<span style="display:inline-block;width:14px;height:14px;background:${terrainColor(k)};border:1px solid #333;margin-right:6px"></span>${k}`;
+                    legendDiv.appendChild(el);
+                }
+            }
+            
+            drawLegend();
+
+            function renderGridToCanvas(grid, size, canvas, highlightStep=-1){
+                const ctx = canvas.getContext('2d');
+                const minTileSize = 5;
+                const tile = Math.max(minTileSize, Math.floor(Math.min(canvas.width, canvas.height)/size));
+
+                // Adjust canvas size to fit the grid with minimum tile size
+                const actualSize = tile * size;
+                canvas.width = actualSize;
+                canvas.height = actualSize;
+
+                ctx.clearRect(0,0,canvas.width, canvas.height);
+
+                // grid.cells is a flat array, not a 2D array
+                const cells = grid.cells;
+                const width = grid.width;
+                const showGrid = document.getElementById('showGrid')?.checked || false;
+
+                for( let y=0; y< size; y++){
+                    for ( let x=0; x<size;x++){
+                        const cell = cells[y * width + x];
+                        const t = cell.terrain ||'EMPTY';
+                        ctx.fillStyle = terrainColor(t);
+                        ctx.fillRect(x*tile, y* tile, tile, tile);
+
+                        if ( cell.object){
+                            ctx.fillStyle='#000';
+                            ctx.fillRect(x*tile+tile*0.16, y*tile+tile*0.16, tile*0.68, tile*0.68)
+                            ctx.fillStyle='#ffd700';
+                            ctx.fillText((cell.object||'0').toString().charAt(0), x*tile+2, t*tile+tile-3);
+                        }
+
+                        if( cell.provenance != null && cell.provenance === highlightStep){
+                            ctx.globalAlpha = 0.55;
+                            ctx.fillStyle = 'rgba(255,255,0,0.35)'
+                            ctx.fillRect(x*tile, y*tile, tile , tile);
+                            ctx.globalAlpha=1;
+                        }
+                    }
+                }
+
+                // Draw grid lines if enabled
+                if(showGrid){
+                    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                    ctx.lineWidth = 1;
+                    for(let x=0; x<=size; x++){
+                        ctx.beginPath();
+                        ctx.moveTo(x*tile, 0);
+                        ctx.lineTo(x*tile, size*tile);
+                        ctx.stroke();
+                    }
+                    for(let y=0; y<=size; y++){
+                        ctx.beginPath();
+                        ctx.moveTo(0, y*tile);
+                        ctx.lineTo(size*tile, y*tile);
+                        ctx.stroke();
+                    }
+                }
+            }
+            function renderCurrent(){
+                if( !currentRun) return;
+                const size = Number(document.getElementById('mapSize').value);
+                const snap = currentRun.snapshots[currentStep];
+                const canvas = document.getElementById('mapCanvas');
+                renderGridToCanvas(snap.grid, size, canvas, currentStep);
+                document.getElementById('stepIndex').textContent = currentStep;
+                document.getElementById('maxStep').textContent = currentRun.snapshots.length -1;
+
+                const astItems = document.querySelectorAll('.astItem');
+                astItems.forEach((el, i)=>{
+                    if( i=== currentStep-1) el.classList.add('active');
+                    else el.classList.remove('active');
+                });
+            }
+
+            document.getElementById('btnStepForward').addEventListener('click', function(){
+                alert('Step Forward Pressed');
+            });
+
+            document.getElementById('btnStepBack').addEventListener('click', function(){
+                alert('Step Back Pressed');
+            });
+
+            document.getElementById('showGrid').addEventListener('change', function(){
+                renderCurrent();
+            });
+
+            document.getElementById('stepSlider').addEventListener('input', function(){
+                
+            });
+
+            document.getElementById('btnPlay').addEventListener('click', function(){
+           
+               
+            });
+
+            document.getElementById('btnGenerate').addEventListener('click', async()=>{
+                const rmsScript = document.getElementById('rmsInput').value;
+                const mapSize = document.getElementById('mapSize').value;
+                const seed = document.getElementById('seed').value;
+
+                const btn = document.getElementById('btnGenerate')
+                btn.disabled = true;
+                btn.textContent = 'Generating...';
+                showStatus('Sending Request To server...', 'info');
+
+                try{
+                    const response = await fetch(`http://localhost:8080/api/mapsGenerator/generate`,{
+                        method:'POST',
+                        headers:{
+                            'Content-Type': 'application/json'
+                        },
+                        body:JSON.stringify({
+                            rmsString: rmsScript,
+                            mapSize: mapSize,
+                            seed:seed
+                        })
+                    })
+
+                    if ( !response.ok){
+                        throw new Error(`Http error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+
+                    if( data.message && data.message.includes('Error')){
+                        throw new Error(data.message);
+                    }
+
+                    currentRun = data;
+                    currentStep = 0;
+
+                    const astList = document.getElementById('astList')
+                    astList.innerHTML='';
+
+                    const initialItem = document.createElement('div');
+                    initialItem.className='astItem'
+                    initialItem.textContent = '0 - inital (empty)'
+                    initialItem.addEventListener('click',()=>{
+                        currentStep =0;
+                        document.getElementById('stepSlider').value = currentStep;
+                        renderCurrent();
+                    });
+                    astList.appendChild(initialItem);
+
+                    for ( let i=0; i< data.ast.length; i++){
+                        const node = data.ast[i];
+                        const el = document.createElement('div');
+                        el.className = 'astItem';
+                        let pretty = `${i+1} - ${node.command}`;
+                        const attrs  = Object.keys(node.attributes||{}).slice(0,3).join(', ');
+                        if(attrs) pretty += ` - ${attrs}`;
+                        el.textContent = pretty;
+                        el.addEventListener('click', ()=>{
+                            currentStep = i+1;
+                            document.getElementById('stepSlider').value = currentStep;
+                            renderCurrent();
+                        })
+                        astList.appendChild(el);
+                    }
+
+                    document.getElementById('stepSlider').max = Math.max(0, data.snapshots.length-1);
+                    document.getElementById('stepSlider').value = 0;
+
+                    renderCurrent();
+                    showStatus(`Map generated successfully! ${data.totalSteps} steps`, 'success')
+                }catch(error){
+                    console.error('Error: ',error)
+                    showStatus(`Error: ${error.message}`, 'error')
+                } finally{
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Map'
+                }
+            })
+        </script>
+    </body>    
+</html>

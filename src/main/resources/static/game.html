@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTS Game - Loading</title>
+    <link rel="stylesheet" href="css/game.css">
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script src="js/map-renderer.js"></script>
+</head>
+<body>
+    <!-- Loading Splash Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <h1 class="game-title">Preparing Battle</h1>
+
+            <div class="map-info">
+                <h2 id="mapName">Loading map...</h2>
+            </div>
+
+            <div class="players-loading">
+                <h3>Player Status</h3>
+                <div id="playerLoadingList" class="player-loading-list">
+                    <!-- Players will be added dynamically -->
+                </div>
+            </div>
+
+            <div class="loading-bar-container">
+                <div class="loading-bar">
+                    <div id="loadingProgress" class="loading-progress"></div>
+                </div>
+                <p id="loadingText" class="loading-text">Initializing game...</p>
+            </div>
+
+            <div class="tips-container">
+                <p class="tip-label">Tip:</p>
+                <p id="gameTip" class="game-tip">Build your base quickly to gain an early advantage!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Game Screen (hidden initially) -->
+    <div id="gameScreen" class="game-screen" style="display: none;">
+        <div class="game-header">
+            <div class="game-info">
+                <span id="gameTitle">RTS Game</span>
+                <span id="gameTimer">00:00</span>
+            </div>
+            <div class="player-resources">
+                <span class="resource">🪵 <span id="wood">200</span></span>
+                <span class="resource">🍖 <span id="food">200</span></span>
+                <span class="resource">🪨 <span id="stone">100</span></span>
+                <span class="resource">🪙 <span id="gold">100</span></span>
+            </div>
+        </div>
+
+        <div class="game-main">
+            <div class="game-canvas-container">
+                <canvas id="gameCanvas" width="1200" height="800"></canvas>
+            </div>
+
+            <div class="game-sidebar">
+                <div class="mini-map">
+                    <h4>Mini Map</h4>
+                    <canvas id="miniMap" width="200" height="200"></canvas>
+                </div>
+
+                <div class="player-list">
+                    <h4>Players</h4>
+                    <div id="gamePlayerList" class="game-player-list">
+                        <!-- Players with heartbeat indicators -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="game-footer">
+            <!-- Left section: Building info or selection info -->
+            <div class="building-info-panel">
+                <div id="buildingInfoContent" class="building-info-content">
+                    <p class="info-placeholder">Select a building to see details</p>
+                </div>
+            </div>
+
+            <!-- Center section: Production/Action buttons (3x4 grid) -->
+            <div class="production-panel">
+                <div class="production-grid">
+                    <button class="production-btn" data-action="1" title="Villager">V<span class="btn-hotkey">Q</span></button>
+                    <button class="production-btn" data-action="2"><span class="btn-hotkey">W</span></button>
+                    <button class="production-btn" data-action="3"><span class="btn-hotkey">E</span></button>
+                    <button class="production-btn" data-action="4"><span class="btn-hotkey">A</span></button>
+                    <button class="production-btn" data-action="5"><span class="btn-hotkey">S</span></button>
+                    <button class="production-btn" data-action="6"><span class="btn-hotkey">D</span></button>
+                    <button class="production-btn" data-action="7"><span class="btn-hotkey">Z</span></button>
+                    <button class="production-btn" data-action="8"><span class="btn-hotkey">X</span></button>
+                    <button class="production-btn" data-action="9"><span class="btn-hotkey">C</span></button>
+                    <button class="production-btn" data-action="10"><span class="btn-hotkey">R</span></button>
+                    <button class="production-btn" data-action="11"><span class="btn-hotkey">F</span></button>
+                    <button class="production-btn rally-point-btn" data-action="12" title="Set Rally Point">📍<span class="btn-hotkey">V</span></button>
+                </div>
+            </div>
+
+            <!-- Right section: Build queue -->
+            <div class="build-queue-panel">
+                <h4>Build Queue</h4>
+                <div id="buildQueue" class="build-queue">
+                    <!-- Queue items will be added dynamically -->
+                    <p class="queue-placeholder">No units in queue</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/game.js"></script>
+</body>
+</html>
