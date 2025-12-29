@@ -1,0 +1,44 @@
+# Project Context
+This is an Age of Empires 2-inspired RTS game with:
+- Java Spring Boot backend (WebSocket support)
+- HTML/JS front end
+- RMS (Random Map Script) generation system
+- Real-time multiplayer functionality
+
+# Coding Standards
+
+## Java/Spring Boot
+- Use Spring Boot 3.x conventions
+- REST endpoints follow /api/{resource} pattern
+- WebSocket endpoints use /ws/{topic}
+- Service layer handles business logic
+- Controllers are thin, delegating to services
+- Use constructor injection for dependencies
+- Prefer records for DTOs
+
+## Frontend/JavaScript
+- Use modern ES6+ syntax
+- Async/await over promise chains
+- Descriptive variable names (e.g., landTiles, terrainTypes)
+- Canvas-based visualizations for game rendering
+
+## RMS Generation
+- Follow Age of Empires 2 RMS syntax conventions
+- Support all major sections: PLAYER_SETUP, LAND_GENERATION, TERRAIN_DEFINITION, etc.
+- Use organic growth algorithms for realistic terrain
+- Stream generation progress via WebSocket
+**See documents/rms_guide.md for complete RMS reference and syntax**
+
+# Architecture Preferences
+- RESTful for state changes
+- WebSocket for real-time updates
+- Binary encoding for performance-critical data (map tiles)
+- Clean separation: controllers → services → repositories
+- SOLID principles
+
+# File Organization
+- Backend: src/main/java/com/{package}/
+- Frontend: src/main/resources/static/ or separate React app
+- Tests mirror source structure
+
+**see documents/promtingguid.md on how to make promots**

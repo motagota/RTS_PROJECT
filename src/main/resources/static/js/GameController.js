@@ -358,6 +358,9 @@ class GameController {
             // Sync selected building to map renderer
             mapRenderer.setSelectedBuilding(this.gameState.getSelectedBuilding());
 
+            // Sync hovered building to map renderer
+            mapRenderer.setHoveredBuilding(this.gameState.getHoveredBuilding());
+
             mapRenderer.render();
 
             // Update minimap

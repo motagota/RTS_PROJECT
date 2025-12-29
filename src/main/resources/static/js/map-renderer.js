@@ -263,6 +263,18 @@ class MapRenderer {
                 Math.PI * 2
             );
             this.terrainCtx.fill();
+        } else if (objectType === 'GOLD') {
+            // Draw gold
+            this.terrainCtx.fillStyle = '#FFD700';
+            this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
+        } else if (objectType === 'STONE') {
+            // Draw stone
+            this.terrainCtx.fillStyle = '#808080';
+            this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
+        } else if (objectType === 'BERRIES' || objectType === 'FORAGE') {
+            // Draw berries
+            this.terrainCtx.fillStyle = '#FF1493';
+            this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
         }
     }
 
