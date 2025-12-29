@@ -1432,9 +1432,9 @@ function findBuildingAtPosition(tileX, tileY) {
     // Check if any building occupies this tile
     const buildings = mapRenderer.mapData.buildings;
     for (const building of buildings) {
-        // Get building dimensions (default to 1x1 if not specified)
-        const width = building.width || 1;
-        const height = building.height || 1;
+        // Get building dimensions (default to 3x3 for headquarters, 1x1 for others)
+        const width = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
+        const height = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
 
         // Check if click is within the building's area
         if (tileX >= building.x && tileX < building.x + width &&

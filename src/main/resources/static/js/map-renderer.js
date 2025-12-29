@@ -7,6 +7,11 @@ class MapRenderer {
         this.ctx = canvas.getContext('2d');
         this.mapData = null;
         this.playerColors = null;
+
+        // Off-screen canvas for caching static terrain/buildings
+        this.terrainCanvas = document.createElement('canvas');
+        this.terrainCtx = this.terrainCanvas.getContext('2d');
+        this.terrainCached = false;
         this.terrainColors = {
             // Base Terrains
             0: '#2ecc71',  // GRASS - Green
@@ -92,6 +97,12 @@ class MapRenderer {
             const canvasHeight = this.mapData.height * this.tileSize;
             this.setCanvasSize(canvasWidth, canvasHeight);
 
+            // Invalidate terrain cache when new map loads
+            this.terrainCached = false;
+
+            // Trigger initial render to create cache and display map
+            this.render();
+
             return this.mapData;
         } catch (error) {
             console.error('Error loading map:', error);
@@ -120,6 +131,48 @@ class MapRenderer {
         const offsetX = Math.max(0, (this.canvas.width - width * this.tileSize) / 2);
         const offsetY = Math.max(0, (this.canvas.height - height * this.tileSize) / 2);
 
+        // Render or use cached terrain layer
+        if (!this.terrainCached) {
+            this.renderTerrainToCache(terrainData, width, height, offsetX, offsetY);
+        }
+
+        // Draw cached terrain and buildings layer
+        this.ctx.drawImage(this.terrainCanvas, 0, 0);
+
+        // Render building selection/hover highlights (dynamic, not cached)
+        if (this.mapData.buildings) {
+            this.renderBuildingHighlights(offsetX, offsetY);
+        }
+
+        // Render units (villagers, soldiers, etc) - not cached, dynamic
+        if (this.mapData.units) {
+            this.renderUnits(offsetX, offsetY);
+        }
+
+        // Render click indicators on top of everything
+        this.renderClickIndicators(offsetX, offsetY);
+
+        // Render drag selection rectangle
+        this.renderDragSelection();
+
+        // Render player starting positions
+        if (this.mapData.playerStarts) {
+            this.renderPlayerStarts(offsetX, offsetY);
+        }
+    }
+
+    /**
+     * Render terrain and buildings to an off-screen cache canvas
+     */
+    renderTerrainToCache(terrainData, width, height, offsetX, offsetY) {
+        // Size the terrain canvas to match main canvas
+        this.terrainCanvas.width = this.canvas.width;
+        this.terrainCanvas.height = this.canvas.height;
+
+        // Clear with black background
+        this.terrainCtx.fillStyle = '#000';
+        this.terrainCtx.fillRect(0, 0, this.terrainCanvas.width, this.terrainCanvas.height);
+
         // Check if terrainData is in new format (cells array) or old format (2D array)
         if (terrainData.cells) {
             // New format: {width, height, cells: [{x, y, terrain, owner, object}, ...]}
@@ -140,8 +193,8 @@ class MapRenderer {
                     color = this.playerColors ? this.playerColors[cell.owner] : color;
                 }
 
-                this.ctx.fillStyle = color;
-                this.ctx.fillRect(
+                this.terrainCtx.fillStyle = color;
+                this.terrainCtx.fillRect(
                     offsetX + x * this.tileSize,
                     offsetY + y * this.tileSize,
                     this.tileSize,
@@ -150,7 +203,7 @@ class MapRenderer {
 
                 // Render object if present
                 if (cell.object) {
-                    this.renderObject(x, y, cell.object, offsetX, offsetY);
+                    this.renderObjectToCache(x, y, cell.object, offsetX, offsetY);
                 }
             }
         } else {
@@ -160,17 +213,17 @@ class MapRenderer {
                     const terrainType = terrainData[x][y];
                     const color = this.terrainColors[terrainType] || '#000000';
 
-                    this.ctx.fillStyle = color;
-                    this.ctx.fillRect(
+                    this.terrainCtx.fillStyle = color;
+                    this.terrainCtx.fillRect(
                         offsetX + x * this.tileSize,
                         offsetY + y * this.tileSize,
                         this.tileSize,
                         this.tileSize
                     );
 
-                    this.ctx.strokeStyle = '#444';
-                    this.ctx.lineWidth = 0.5;
-                    this.ctx.strokeRect(
+                    this.terrainCtx.strokeStyle = '#444';
+                    this.terrainCtx.lineWidth = 0.5;
+                    this.terrainCtx.strokeRect(
                         offsetX + x * this.tileSize,
                         offsetY + y * this.tileSize,
                         this.tileSize,
@@ -180,26 +233,152 @@ class MapRenderer {
             }
         }
 
-        // Render buildings (headquarters, etc)
+        // Render buildings to cache (buildings are static)
         if (this.mapData.buildings) {
-            this.renderBuildings(offsetX, offsetY);
+            this.renderBuildingsToCache(offsetX, offsetY);
         }
 
-        // Render units (villagers, soldiers, etc)
-        if (this.mapData.units) {
-            this.renderUnits(offsetX, offsetY);
+        // Mark as cached
+        this.terrainCached = true;
+    }
+
+    /**
+     * Render object to cache canvas
+     */
+    renderObjectToCache(x, y, objectType, offsetX, offsetY) {
+        const pixelX = offsetX + x * this.tileSize;
+        const pixelY = offsetY + y * this.tileSize;
+
+        if (objectType === 'TREE') {
+            // Draw tree
+            this.terrainCtx.fillStyle = '#228B22';
+            this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
+            this.terrainCtx.fillStyle = '#006400';
+            this.terrainCtx.beginPath();
+            this.terrainCtx.arc(
+                pixelX + this.tileSize / 2,
+                pixelY + this.tileSize / 2,
+                this.tileSize * 0.4,
+                0,
+                Math.PI * 2
+            );
+            this.terrainCtx.fill();
+        }
+    }
+
+    /**
+     * Render buildings to cache canvas
+     */
+    renderBuildingsToCache(offsetX, offsetY) {
+        let buildings = this.mapData.buildings;
+        if (typeof buildings === 'string') {
+            try {
+                buildings = JSON.parse(buildings);
+                this.mapData.buildings = buildings;
+            } catch (e) {
+                console.error('Failed to parse buildings:', e);
+                return;
+            }
         }
 
-        // Render click indicators on top of everything
-        this.renderClickIndicators(offsetX, offsetY);
-
-        // Render drag selection rectangle
-        this.renderDragSelection();
-
-        // Render player starting positions
-        if (this.mapData.playerStarts) {
-            this.renderPlayerStarts(offsetX, offsetY);
+        if (!buildings || buildings.length === 0) {
+            return;
         }
+
+        buildings.forEach(building => {
+            const x = offsetX + building.x * this.tileSize;
+            const y = offsetY + building.y * this.tileSize;
+
+            // Default to 3x3 for headquarters, 1x1 for others if width/height not specified
+            const buildingWidth = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            const buildingHeight = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            const width = buildingWidth * this.tileSize;
+            const height = buildingHeight * this.tileSize;
+
+            const playerColor = this.getPlayerColor(building.playerNumber);
+
+            // Draw building rectangle
+            this.terrainCtx.fillStyle = playerColor;
+            this.terrainCtx.fillRect(x, y, width, height);
+
+            // Draw building border
+            this.terrainCtx.strokeStyle = '#000';
+            this.terrainCtx.lineWidth = 2;
+            this.terrainCtx.strokeRect(x, y, width, height);
+
+            // Draw building type symbol
+            const symbol = building.type === 'HEADQUARTERS' ? 'HQ' : building.type.charAt(0);
+            this.terrainCtx.fillStyle = '#fff';
+            this.terrainCtx.font = `bold ${this.tileSize}px Arial`;
+            this.terrainCtx.textAlign = 'center';
+            this.terrainCtx.textBaseline = 'middle';
+            this.terrainCtx.fillText(symbol, x + width / 2, y + height / 2);
+        });
+    }
+
+    /**
+     * Render building highlights (selection, hover, rally points, production indicators)
+     * This renders only the dynamic parts on top of the cached building layer
+     */
+    renderBuildingHighlights(offsetX, offsetY) {
+        let buildings = this.mapData.buildings;
+        if (typeof buildings === 'string') {
+            try {
+                buildings = JSON.parse(buildings);
+                this.mapData.buildings = buildings;
+            } catch (e) {
+                console.error('Failed to parse buildings:', e);
+                return;
+            }
+        }
+
+        if (!buildings || buildings.length === 0) {
+            return;
+        }
+
+        buildings.forEach(building => {
+            const x = offsetX + building.x * this.tileSize;
+            const y = offsetY + building.y * this.tileSize;
+
+            // Use same default logic as cache rendering
+            const buildingWidth = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            const buildingHeight = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
+
+            // Check if building is selected or hovered
+            const isHovered = this.hoveredBuilding &&
+                this.hoveredBuilding.x === building.x &&
+                this.hoveredBuilding.y === building.y &&
+                this.hoveredBuilding.type === building.type;
+
+            const isSelected = this.selectedBuilding &&
+                this.selectedBuilding.x === building.x &&
+                this.selectedBuilding.y === building.y &&
+                this.selectedBuilding.type === building.type;
+
+            // Draw selection indicator
+            if (isSelected) {
+                this.renderSelectionIndicator(x, y, buildingWidth, buildingHeight);
+            } else if (isHovered) {
+                this.renderHoverIndicator(x, y, buildingWidth, buildingHeight);
+            }
+
+            // Draw production indicator
+            if (this.hasProductionQueue(building)) {
+                const indicatorSize = this.tileSize * 0.3;
+                this.ctx.fillStyle = '#00d4ff';
+                this.ctx.beginPath();
+                this.ctx.arc(x + indicatorSize, y + indicatorSize, indicatorSize / 2, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#000';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            }
+
+            // Draw rally point if set and building is selected
+            if (building.rallyPointX != null && building.rallyPointY != null && isSelected) {
+                this.renderRallyPoint(offsetX, offsetY, building);
+            }
+        });
     }
 
     /**
@@ -394,11 +573,14 @@ class MapRenderer {
      * Render units on the map
      */
     renderUnits(offsetX, offsetY) {
-        // Parse units if it's a string
+        // Get units (should already be parsed array)
         let units = this.mapData.units;
+
+        // Only parse if it's still a string (backward compatibility)
         if (typeof units === 'string') {
             try {
                 units = JSON.parse(units);
+                this.mapData.units = units; // Cache parsed version
             } catch (e) {
                 console.error('Failed to parse units:', e);
                 return;
@@ -726,8 +908,11 @@ class MapRenderer {
             const deltaTime = (currentTime - this.lastUpdateTime) / 1000; // Convert to seconds
             this.lastUpdateTime = currentTime;
 
+            // Cap delta time to prevent large jumps (e.g., when tab is inactive)
+            const cappedDeltaTime = Math.min(deltaTime, 0.1); // Max 100ms
+
             // Update interpolated positions
-            this.updateUnitInterpolation(deltaTime);
+            this.updateUnitInterpolation(cappedDeltaTime);
 
             // Continue animation
             this.animationFrameId = requestAnimationFrame(animate);
@@ -756,10 +941,30 @@ class MapRenderer {
             }
         }
 
+        // Check if any units are actually moving first (optimization)
+        let hasMovingUnits = false;
+        for (const unit of units) {
+            const displayPos = this.unitDisplayPositions.get(unit.id);
+            if (!displayPos) continue;
+
+            const dx = unit.x - displayPos.x;
+            const dy = unit.y - displayPos.y;
+            if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+                hasMovingUnits = true;
+                break;
+            }
+        }
+
+        // Skip interpolation if no units are moving
+        if (!hasMovingUnits) {
+            return;
+        }
+
         units.forEach(unit => {
             // Initialize display position if not exists
             if (!this.unitDisplayPositions.has(unit.id)) {
                 this.unitDisplayPositions.set(unit.id, { x: unit.x, y: unit.y });
+                return;
             }
 
             const displayPos = this.unitDisplayPositions.get(unit.id);
@@ -800,7 +1005,7 @@ class MapRenderer {
             }
         }
 
-        // Redraw if any unit moved
+        // Redraw only if any unit actually moved
         if (needsRedraw) {
             this.render();
         }
@@ -830,7 +1035,7 @@ class MapRenderer {
             }
         });
 
-        // Update units in map data
+        // Update units in map data (store as parsed array, not string)
         this.mapData.units = units;
 
         // Don't render here - let the animation loop handle it
