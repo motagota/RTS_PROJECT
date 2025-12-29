@@ -1,127 +1,125 @@
 package com.rts.controller;
 
-import com.rts.dto.ProduceUnitRequest;
-import com.rts.model.ChatMessage;
+import com.rts.dto.*;
 import com.rts.model.Game;
 import com.rts.model.GamePlayer;
-import com.rts.model.GeneratedMap;
 import com.rts.model.ProductionQueueItem;
 import com.rts.service.GameService;
+import com.rts.service.GameServiceExtensions;
 import com.rts.service.HeartbeatOutcome;
-import com.rts.service.LobbyService;
-import com.rts.service.MapService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
+/**
+ * GameController - Handles game-related HTTP endpoints
+ *
+ * REFACTORED with proper DTOs and separation of concerns:
+ * - All request bodies use DTOs with validation
+ * - Business logic delegated to services
+ * - Clean separation between API layer and business layer
+ */
 @RestController
 @RequestMapping("/api/games")
 @CrossOrigin(origins = "*")
 public class GameController {
 
-    @Autowired
-    private GameService gameService;
+    private final GameService gameService;
+    private final GameServiceExtensions gameServiceExt;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Autowired
-    private LobbyService lobbyService;
-
-    @Autowired
-    private MapService mapService;
-
-    @Autowired
-    private SimpMessagingTemplate messagingTemplate;
-
-    @PostMapping("/start/{lobbyId}")
-    public ResponseEntity<?> startGame(@PathVariable Long lobbyId) {
-        try {
-            Game game = gameService.startGame(lobbyId);
-
-            // Notify all players in lobby to transition to game
-            ChatMessage chatMessage = new ChatMessage();
-            chatMessage.setSender("System");
-            chatMessage.setType(ChatMessage.MessageType.SYSTEM);
-            chatMessage.setLobbyId(lobbyId);
-            chatMessage.setContent("GAME_START:" + game.getId());
-
-            messagingTemplate.convertAndSend("/topic/lobby/" + lobbyId, chatMessage);
-
-            return ResponseEntity.ok(game);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    public GameController(GameService gameService,
+                          GameServiceExtensions gameServiceExt,
+                          SimpMessagingTemplate messagingTemplate) {
+        this.gameService = gameService;
+        this.gameServiceExt = gameServiceExt;
+        this.messagingTemplate = messagingTemplate;
     }
 
+    /**
+     * Start a new game from a lobby
+     */
+    @PostMapping("/start/{lobbyId}")
+    public ResponseEntity<Game> startGame(@PathVariable Long lobbyId) {
+        Game game = gameServiceExt.startGameFromLobby(lobbyId);
+
+        // Notify lobby players via WebSocket
+        gameServiceExt.notifyGameStart(lobbyId, game.getId());
+
+        return ResponseEntity.ok(game);
+    }
+
+    /**
+     * Get game by ID
+     */
     @GetMapping("/{id}")
-    public ResponseEntity<?> getGame(@PathVariable Long id) {
+    public ResponseEntity<Game> getGame(@PathVariable Long id) {
         return gameService.getGameById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/{id}/with-map")
-    public ResponseEntity<?> getGameWithMap(@PathVariable Long id) {
-        Optional<Game> gameOpt = gameService.getGameById(id);
-        if (gameOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-
-        Game game = gameOpt.get();
-        Map<String, Object> response = new HashMap<>();
-        response.put("game", game);
-
-        // Get the generated map if available
-        Optional<GeneratedMap> mapOpt = mapService.getGeneratedMapByGameId(id);
-        mapOpt.ifPresent(generatedMap -> response.put("map", generatedMap));
-
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/by-lobby/{lobbyId}")
-    public ResponseEntity<?> getGameByLobby(@PathVariable Long lobbyId) {
-        return gameService.getGameByLobbyId(lobbyId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
+    /**
+     * Get game players
+     */
     @GetMapping("/{id}/players")
     public ResponseEntity<List<GamePlayer>> getGamePlayers(@PathVariable Long id) {
-        return ResponseEntity.ok(gameService.getGamePlayers(id));
+        List<GamePlayer> players = gameService.getGamePlayers(id);
+        return ResponseEntity.ok(players);
     }
 
-    @PostMapping("/{id}/heartbeat")
-    public ResponseEntity<?> sendHeartbeat(@PathVariable Long id, @RequestBody Map<String, String> request) {
-        try {
-            String playerName = request.get("playerName");
-            gameService.updatePlayerHeartbeat(id, playerName);
-            return ResponseEntity.ok(Map.of("status", "heartbeat received"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    /**
+     * Send heartbeat
+     */
+    @PostMapping("/{gameId}/players/{playerName}/heartbeat")
+    public ResponseEntity<Map<String, String>> sendHeartbeat(
+            @PathVariable Long gameId,
+            @PathVariable String playerName) {
+        gameService.updatePlayerHeartbeat(gameId, playerName);
+        return ResponseEntity.ok(Map.of("status", "heartbeat received"));
     }
 
+    /**
+     * Update player status (LOADING, READY, etc.)
+     */
+    @PutMapping("/{gameId}/players/{playerName}/status")
+    public ResponseEntity<Map<String, String>> updatePlayerStatus(
+            @PathVariable Long gameId,
+            @PathVariable String playerName,
+            @Valid @RequestBody PlayerStatusRequest request) {
+        gameService.updatePlayerStatus(gameId, playerName, request.getStatus());
+
+        // Broadcast status update
+        messagingTemplate.convertAndSend("/topic/game/" + gameId,
+                Map.of("type", "PLAYER_STATUS", "playerName", playerName, "status", request.getStatus()));
+
+        return ResponseEntity.ok(Map.of("status", "updated"));
+    }
+
+    /**
+     * Loading tick - polls game status during loading phase
+     */
     @GetMapping("/{id}/loading-tick")
-    public ResponseEntity<?> loadingTick(@PathVariable Long id){
+    public ResponseEntity<Map<String, Object>> loadingTick(@PathVariable Long id) {
         HeartbeatOutcome outcome = gameService.tickGame(id);
 
-        switch(outcome){
+        // Handle different outcomes
+        switch (outcome) {
             case PLAYER_MARKED_DISCONNECTED -> {
                 List<GamePlayer> disconnectedPlayers = gameService.getDisconnectedPlayersInGracePeriod(id);
                 messagingTemplate.convertAndSend("/topic/game/" + id,
                         Map.of("type", "PLAYER_DISCONNECTED", "players", disconnectedPlayers));
             }
             case ALL_READY -> messagingTemplate.convertAndSend("/topic/game/" + id,
-                    Map.of("type","GAME_STATUS","status","ACTIVE"));
-            case GRACE_PERIOD_OVER -> {
-                messagingTemplate.convertAndSend("/topic/game/" + id,
-                        Map.of("type","PLAYERS_BOOTED","message","Disconnected players have been removed"));
-            }
-            default->{}
+                    Map.of("type", "GAME_STATUS", "status", "ACTIVE"));
+            case GRACE_PERIOD_OVER -> messagingTemplate.convertAndSend("/topic/game/" + id,
+                    Map.of("type", "PLAYERS_BOOTED", "message", "Disconnected players have been removed"));
         }
 
         String gameStatus = gameService.getGameById(id)
@@ -137,118 +135,75 @@ public class GameController {
         ));
     }
 
-    @PostMapping("/{id}/player-status")
-    public ResponseEntity<?> updatePlayerStatus(@PathVariable Long id, @RequestBody Map<String, String> request) {
-        try {
-            String playerName = request.get("playerName");
-            String status = request.get("status");
-            gameService.updatePlayerStatus(id, playerName, status);
+    /**
+     * Enqueue unit production
+     */
+    @PostMapping("/{gameId}/players/{playerName}/queue")
+    public ResponseEntity<Map<String, Object>> enqueueProduction(
+            @PathVariable Long gameId,
+            @PathVariable String playerName,
+            @Valid @RequestBody EnqueueProductionRequest request) {
+        ProductionQueueItem queueItem = gameServiceExt.enqueueUnitProduction(
+                gameId, playerName, request.getUnitType());
 
-            // Broadcast status update to all players in game
-            messagingTemplate.convertAndSend("/topic/game/" + id,
-                    Map.of("type", "PLAYER_STATUS", "playerName", playerName, "status", status));
+        // Get updated resources
+        GamePlayer player = gameServiceExt.getPlayerByName(gameId, playerName)
+                .orElse(null);
 
-            return ResponseEntity.ok(Map.of("status", "updated"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        // Broadcast updates
+        if (player != null) {
+            messagingTemplate.convertAndSend("/topic/game/" + gameId,
+                    Map.of("type", "RESOURCES_UPDATE",
+                            "playerName", playerName,
+                            "resources", player.getResources()));
         }
+
+        return ResponseEntity.ok(Map.of(
+                "queueItem", queueItem,
+                "resources", player != null ? player.getResources() : null
+        ));
     }
 
+    /**
+     * Get production queue for a player
+     */
+    @GetMapping("/{gameId}/players/{playerName}/queue")
+    public ResponseEntity<List<ProductionQueueItem>> getProductionQueue(
+            @PathVariable Long gameId,
+            @PathVariable String playerName) {
+        List<ProductionQueueItem> queue = gameService.getPlayerProductionQueue(gameId, playerName);
+        return ResponseEntity.ok(queue);
+    }
+
+    /**
+     * Set rally point for a building
+     */
+    @PutMapping("/{gameId}/buildings/{buildingId}/rally-point")
+    public ResponseEntity<Map<String, String>> setRallyPoint(
+            @PathVariable Long gameId,
+            @PathVariable Long buildingId,
+            @Valid @RequestBody SetRallyPointRequest request) {
+        gameServiceExt.setRallyPoint(gameId, buildingId, request.getRallyX(), request.getRallyY());
+        return ResponseEntity.ok(Map.of("status", "rally point set"));
+    }
+
+    /**
+     * Move units to a target location
+     */
+    @PostMapping("/{gameId}/units/move")
+    public ResponseEntity<Map<String, String>> moveUnits(
+            @PathVariable Long gameId,
+            @Valid @RequestBody MoveUnitsRequest request) {
+        gameServiceExt.moveUnits(gameId, request.getUnitIds(), request.getTargetX(), request.getTargetY());
+        return ResponseEntity.ok(Map.of("status", "units movement queued"));
+    }
+
+    /**
+     * Stop a game
+     */
     @PostMapping("/{id}/stop")
-    public ResponseEntity<?> stopGame(@PathVariable Long id) {
-        try {
-            gameService.stopGame(id);
-            return ResponseEntity.ok(Map.of("status", "game stopped"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @PostMapping("/{id}/produce-unit")
-    public ResponseEntity<?> produceUnit(@PathVariable Long id, @RequestBody ProduceUnitRequest request) {
-        try {
-            ProductionQueueItem queueItem = gameService.produceUnit(
-                    id,
-                    request.getPlayerName(),
-                    request.getBuildingX(),
-                    request.getBuildingY(),
-                    request.getBuildingType(),
-                    request.getUnitType()
-            );
-
-            // Get updated player resources to send back
-            GamePlayer player = gameService.getGamePlayers(id).stream()
-                    .filter(p -> p.getPlayerName().equals(request.getPlayerName()))
-                    .findFirst()
-                    .orElse(null);
-
-            // Broadcast resource update to the player
-            if (player != null) {
-                messagingTemplate.convertAndSend("/topic/game/" + id,
-                        Map.of("type", "RESOURCES_UPDATE",
-                                "playerName", request.getPlayerName(),
-                                "resources", player.getResources()));
-            }
-
-            return ResponseEntity.ok(Map.of(
-                    "queueItem", queueItem,
-                    "resources", player != null ? player.getResources() : null
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @GetMapping("/{id}/production-queue")
-    public ResponseEntity<?> getProductionQueue(@PathVariable Long id, @RequestParam String playerName) {
-        try {
-            List<ProductionQueueItem> queue = gameService.getPlayerProductionQueue(id, playerName);
-            return ResponseEntity.ok(queue);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @PostMapping("/{id}/buildings/rally-point")
-    public ResponseEntity<?> setRallyPoint(@PathVariable Long id, @RequestBody Map<String, Object> request) {
-        try {
-            System.out.println("Received rally point request: " + request);
-
-            Integer buildingX = (Integer) request.get("buildingX");
-            Integer buildingY = (Integer) request.get("buildingY");
-            String buildingType = (String) request.get("buildingType");
-            Integer rallyPointX = (Integer) request.get("rallyPointX");
-            Integer rallyPointY = (Integer) request.get("rallyPointY");
-
-            System.out.println("Parsed values - buildingX: " + buildingX + ", buildingY: " + buildingY +
-                             ", buildingType: " + buildingType + ", rallyPointX: " + rallyPointX +
-                             ", rallyPointY: " + rallyPointY);
-
-            gameService.setRallyPoint(id, buildingX, buildingY, buildingType, rallyPointX, rallyPointY);
-
-            return ResponseEntity.ok(Map.of("status", "rally point set"));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
-    @PostMapping("/{id}/units/move")
-    public ResponseEntity<?> moveUnit(@PathVariable Long id, @RequestBody Map<String, Object> request) {
-        try {
-            Integer unitX = (Integer) request.get("unitX");
-            Integer unitY = (Integer) request.get("unitY");
-            Integer targetX = (Integer) request.get("targetX");
-            Integer targetY = (Integer) request.get("targetY");
-
-            System.out.println("Moving unit at (" + unitX + "," + unitY + ") to (" + targetX + "," + targetY + ")");
-
-            mapService.setUnitDestination(id, unitX, unitY, targetX, targetY);
-
-            return ResponseEntity.ok(Map.of("status", "unit movement queued"));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, String>> stopGame(@PathVariable Long id) {
+        gameService.stopGame(id);
+        return ResponseEntity.ok(Map.of("status", "game stopped"));
     }
 }

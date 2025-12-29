@@ -598,7 +598,82 @@ public class MapService {
     }
 
     /**
-     * Set a unit's destination for pathfinding
+     * Set a unit's destination for pathfinding by unit ID
+     */
+    public void setUnitDestinationById(Long gameId, int unitId, int targetX, int targetY) {
+        try {
+            Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                System.err.println("Map not found for game " + gameId);
+                return;
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+
+            // Get units
+            String unitsJson = generatedMap.getUnits();
+            if (unitsJson == null || unitsJson.isEmpty()) {
+                System.err.println("No units found on map");
+                return;
+            }
+
+            java.util.List<com.rts.model.Unit> units = objectMapper.readValue(
+                    unitsJson,
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, com.rts.model.Unit.class)
+            );
+
+            // Get buildings
+            String buildingsJson = generatedMap.getBuildings();
+            java.util.List<Building> buildings = null;
+            if (buildingsJson != null && !buildingsJson.isEmpty()) {
+                buildings = objectMapper.readValue(
+                        buildingsJson,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Building.class)
+                );
+            }
+
+            // Get terrain data
+            byte[] terrainData = generatedMap.getTerrainData();
+
+            // Find the unit by ID
+            com.rts.model.Unit targetUnit = null;
+            for (com.rts.model.Unit unit : units) {
+                if (unit.getId() == unitId) {
+                    targetUnit = unit;
+                    break;
+                }
+            }
+
+            if (targetUnit == null) {
+                System.err.println("Unit not found with ID: " + unitId);
+                return;
+            }
+
+            // Set destination using movement service
+            movementService.setUnitDestination(
+                    targetUnit, targetX, targetY,
+                    terrainData, buildings, units,
+                    generatedMap.getWidth(), generatedMap.getHeight()
+            );
+
+            // Save updated units
+            unitsJson = objectMapper.writeValueAsString(units);
+            generatedMap.setUnits(unitsJson);
+            saveGeneratedMap(generatedMap);
+
+            // Immediately broadcast the updated units so clients see the movement start
+            broadcastUnitUpdate(gameId, units);
+
+            System.out.println("Set unit ID " + unitId + " to move to (" + targetX + "," + targetY + ")");
+
+        } catch (Exception e) {
+            System.err.println("Error setting unit destination by ID: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Set a unit's destination for pathfinding by coordinates (deprecated, use setUnitDestinationById)
      */
     public void setUnitDestination(Long gameId, int unitX, int unitY, int targetX, int targetY) {
         try {

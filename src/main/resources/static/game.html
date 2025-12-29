@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="css/game.css">
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
-    <script src="js/map-renderer.js"></script>
 </head>
 <body>
     <!-- Loading Splash Screen -->
@@ -112,6 +111,31 @@
         </div>
     </div>
 
-    <script src="js/game.js"></script>
+    <!-- Core modules -->
+    <script src="js/core/EventBus.js"></script>
+    <script src="js/core/GameState.js"></script>
+
+    <!-- Utilities -->
+    <script src="js/utils/CoordinateConverter.js"></script>
+
+    <!-- Managers -->
+    <script src="js/managers/SelectionManager.js"></script>
+    <script src="js/managers/InputHandler.js"></script>
+    <script src="js/managers/NetworkManager.js"></script>
+
+    <!-- UI Components -->
+    <script src="js/ui/ResourceDisplay.js"></script>
+    <script src="js/ui/UnitInfoPanel.js"></script>
+    <script src="js/ui/BuildingInfoPanel.js"></script>
+    <script src="js/ui/ProductionPanel.js"></script>
+
+    <!-- Game Controller -->
+    <script src="js/GameController.js"></script>
+
+    <!-- Map Renderer (existing) -->
+    <script src="js/map-renderer.js"></script>
+
+    <!-- Main entry point (refactored) -->
+    <script src="js/game-refactored.js"></script>
 </body>
 </html>
