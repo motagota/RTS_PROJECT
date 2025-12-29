@@ -602,8 +602,7 @@ public class GameService {
                         // Process production queue
                         gameService.processProductionQueue(gameId);
 
-                        // Process unit movement
-                        System.out.println("DEBUG: Game loop calling processUnitMovement for game " + gameId);
+                        // Process unit movement                       
                         gameService.mapService.processUnitMovement(gameId);
 
                         // TODO: Additional game logic here

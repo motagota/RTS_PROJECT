@@ -561,12 +561,19 @@ public class MapService {
 
         for (com.rts.model.Unit unit : units) {
             Map<String, Object> data = new HashMap<>();
+            data.put("id", unit.getId());
             data.put("x", unit.getX());
             data.put("y", unit.getY());
             data.put("type", unit.getType().name());
             data.put("playerNumber", unit.getPlayerNumber());
             data.put("health", unit.getHealth());
             data.put("maxHealth", unit.getMaxHealth());
+
+            // Preserve movement state
+            data.put("targetX", unit.getTargetX());
+            data.put("targetY", unit.getTargetY());
+            data.put("movementSpeed", unit.getMovementSpeed());
+
             unitData.add(data);
         }
 
@@ -649,12 +656,9 @@ public class MapService {
                     generatedMap.getWidth(), generatedMap.getHeight()
             );
 
-            System.out.println("DEBUG: After setUnitDestination - targetX=" + targetUnit.getTargetX() + " targetY=" + targetUnit.getTargetY() + " isMoving=" + targetUnit.isMoving());
-
             // Save updated units
             unitsJson = objectMapper.writeValueAsString(units);
-            System.out.println("DEBUG: Units JSON being saved: " + unitsJson.substring(0, Math.min(200, unitsJson.length())));
-            generatedMap.setUnits(unitsJson);
+             generatedMap.setUnits(unitsJson);
             saveGeneratedMap(generatedMap);
 
             // Immediately broadcast the updated units so clients see the movement start
@@ -673,10 +677,8 @@ public class MapService {
      */
     public void processUnitMovement(Long gameId) {
         try {
-            System.out.println("DEBUG: processUnitMovement called for game " + gameId);
             Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
             if (mapOpt.isEmpty()) {
-                System.out.println("DEBUG: No map found for game " + gameId);
                 return;
             }
 
@@ -685,7 +687,6 @@ public class MapService {
             // Get units
             String unitsJson = generatedMap.getUnits();
             if (unitsJson == null || unitsJson.isEmpty()) {
-                System.out.println("DEBUG: No units JSON found");
                 return;
             }
 
@@ -694,16 +695,12 @@ public class MapService {
                     objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, com.rts.model.Unit.class)
             );
 
-            System.out.println("DEBUG: Loaded " + units.size() + " units from JSON");
-
-            // Check if any units are moving
+                       // Check if any units are moving
             boolean anyMoving = false;
             for (com.rts.model.Unit unit : units) {
-                System.out.println("  Unit " + unit.getId() + " at (" + unit.getX() + "," + unit.getY() +
-                    ") targetX=" + unit.getTargetX() + " targetY=" + unit.getTargetY() + " isMoving=" + unit.isMoving());
-                if (unit.isMoving()) {
+                   if (unit.isMoving()) {
                     anyMoving = true;
-                    System.out.println("  ^^^ This unit IS MOVING ^^^");
+                   
                 }
             }
 
@@ -750,13 +747,10 @@ public class MapService {
      */
     private void broadcastUnitUpdate(Long gameId, java.util.List<com.rts.model.Unit> units) {
         try {
-            System.out.println("DEBUG: Broadcasting unit update for game " + gameId + " with " + units.size() + " units");
-
+      
             // Log first unit with target
             for (com.rts.model.Unit u : units) {
                 if (u.getTargetX() != null && u.getTargetY() != null) {
-                    System.out.println("  -> Unit " + u.getId() + " at (" + u.getX() + "," + u.getY() +
-                        ") targeting (" + u.getTargetX() + "," + u.getTargetY() + ") isMoving=" + u.isMoving());
                     break;
                 }
             }
@@ -768,8 +762,7 @@ public class MapService {
 
             // Send to all players in this game
             messagingTemplate.convertAndSend("/topic/game/" + gameId, update);
-            System.out.println("DEBUG: Broadcast sent successfully");
-
+        
         } catch (Exception e) {
             System.err.println("Error broadcasting unit update: " + e.getMessage());
             e.printStackTrace();

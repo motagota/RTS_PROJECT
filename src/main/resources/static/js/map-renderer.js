@@ -32,6 +32,20 @@ class MapRenderer {
         this.hoveredBuilding = null;   // Currently hovered building
         this.selectedUnits = [];       // Array of selected units (for multi-selection)
         this.hoveredUnit = null;       // Currently hovered unit
+
+        // Client-side movement interpolation
+        this.unitDisplayPositions = new Map(); // Map of unit.id -> {x, y} for smooth rendering
+        this.lastUpdateTime = Date.now();
+        this.animationFrameId = null;
+
+        // Click indicators for move commands
+        this.clickIndicators = []; // Array of {x, y, startTime, duration}
+
+        // Drag selection rectangle
+        this.dragRect = null; // {startX, startY, endX, endY} in pixel coordinates
+
+        // Start animation loop
+        this.startAnimationLoop();
     }
 
     /**
@@ -59,6 +73,19 @@ class MapRenderer {
             // Parse buildings if it's a JSON string
             if (typeof this.mapData.buildings === 'string') {
                 this.mapData.buildings = JSON.parse(this.mapData.buildings);
+            }
+
+            // Parse units and initialize display positions
+            if (this.mapData.units) {
+                let units = this.mapData.units;
+                if (typeof units === 'string') {
+                    units = JSON.parse(units);
+                    this.mapData.units = units;
+                }
+                // Initialize display positions for all units
+                units.forEach(unit => {
+                    this.unitDisplayPositions.set(unit.id, { x: unit.x, y: unit.y });
+                });
             }
 
             const canvasWidth = this.mapData.width * this.tileSize;
@@ -162,6 +189,12 @@ class MapRenderer {
         if (this.mapData.units) {
             this.renderUnits(offsetX, offsetY);
         }
+
+        // Render click indicators on top of everything
+        this.renderClickIndicators(offsetX, offsetY);
+
+        // Render drag selection rectangle
+        this.renderDragSelection();
 
         // Render player starting positions
         if (this.mapData.playerStarts) {
@@ -377,8 +410,10 @@ class MapRenderer {
         }
 
         units.forEach(unit => {
-            const x = offsetX + unit.x * this.tileSize;
-            const y = offsetY + unit.y * this.tileSize;
+            // Use interpolated display position for smooth movement
+            const displayPos = this.unitDisplayPositions.get(unit.id) || { x: unit.x, y: unit.y };
+            const x = offsetX + displayPos.x * this.tileSize;
+            const y = offsetY + displayPos.y * this.tileSize;
 
             // Get player color (default to white if not set)
             const playerColor = this.getPlayerColor(unit.playerNumber);
@@ -683,6 +718,95 @@ class MapRenderer {
     }
 
     /**
+     * Start the animation loop for smooth unit movement
+     */
+    startAnimationLoop() {
+        const animate = () => {
+            const currentTime = Date.now();
+            const deltaTime = (currentTime - this.lastUpdateTime) / 1000; // Convert to seconds
+            this.lastUpdateTime = currentTime;
+
+            // Update interpolated positions
+            this.updateUnitInterpolation(deltaTime);
+
+            // Continue animation
+            this.animationFrameId = requestAnimationFrame(animate);
+        };
+
+        animate();
+    }
+
+    /**
+     * Update unit display positions using lerp towards their target
+     */
+    updateUnitInterpolation(deltaTime) {
+        if (!this.mapData || !this.mapData.units) {
+            return;
+        }
+
+        let needsRedraw = false;
+
+        // Parse units if needed
+        let units = this.mapData.units;
+        if (typeof units === 'string') {
+            try {
+                units = JSON.parse(units);
+            } catch (e) {
+                return;
+            }
+        }
+
+        units.forEach(unit => {
+            // Initialize display position if not exists
+            if (!this.unitDisplayPositions.has(unit.id)) {
+                this.unitDisplayPositions.set(unit.id, { x: unit.x, y: unit.y });
+            }
+
+            const displayPos = this.unitDisplayPositions.get(unit.id);
+            const serverPos = { x: unit.x, y: unit.y };
+
+            // Calculate distance to server position
+            const dx = serverPos.x - displayPos.x;
+            const dy = serverPos.y - displayPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // If there's a significant difference, lerp towards it
+            if (distance > 0.01) {
+                // Use unit's movement speed (default 0.1 tiles per tick at 10 FPS = 1 tile/sec)
+                // Convert to client-side smooth movement
+                const speed = (unit.movementSpeed || 0.1) * 10; // tiles per second
+                const maxMove = speed * deltaTime;
+
+                if (distance <= maxMove) {
+                    // Snap to final position
+                    displayPos.x = serverPos.x;
+                    displayPos.y = serverPos.y;
+                } else {
+                    // Lerp towards server position
+                    const t = maxMove / distance;
+                    displayPos.x += dx * t;
+                    displayPos.y += dy * t;
+                }
+
+                needsRedraw = true;
+            }
+        });
+
+        // Clean up display positions for units that no longer exist
+        const unitIds = new Set(units.map(u => u.id));
+        for (const [id] of this.unitDisplayPositions) {
+            if (!unitIds.has(id)) {
+                this.unitDisplayPositions.delete(id);
+            }
+        }
+
+        // Redraw if any unit moved
+        if (needsRedraw) {
+            this.render();
+        }
+    }
+
+    /**
      * Update units data without reloading entire map
      * @param {Array} units - Updated units array
      */
@@ -699,11 +823,17 @@ class MapRenderer {
             this.selectedUnits = units.filter(u => selectedIds.includes(u.id));
         }
 
+        // Initialize display positions for new units
+        units.forEach(unit => {
+            if (!this.unitDisplayPositions.has(unit.id)) {
+                this.unitDisplayPositions.set(unit.id, { x: unit.x, y: unit.y });
+            }
+        });
+
         // Update units in map data
         this.mapData.units = units;
 
-        // Re-render the entire scene
-        this.render();
+        // Don't render here - let the animation loop handle it
     }
 
     /**
@@ -778,7 +908,14 @@ class MapRenderer {
             }
         }
 
-        return units.find(unit => unit.x === mapX && unit.y === mapY) || null;
+        // Use display positions for click detection (for smooth movement)
+        // Check if click is within 0.5 tiles of the display position
+        return units.find(unit => {
+            const displayPos = this.unitDisplayPositions.get(unit.id) || { x: unit.x, y: unit.y };
+            const dx = Math.abs(displayPos.x - mapX);
+            const dy = Math.abs(displayPos.y - mapY);
+            return dx < 1 && dy < 1;
+        }) || null;
     }
 
     /**
@@ -839,5 +976,134 @@ class MapRenderer {
      */
     getHoveredUnit() {
         return this.hoveredUnit;
+    }
+
+    /**
+     * Add a click indicator at the specified position
+     * @param {number} x - Tile X coordinate
+     * @param {number} y - Tile Y coordinate
+     */
+    addClickIndicator(x, y) {
+        this.clickIndicators.push({
+            x: x,
+            y: y,
+            startTime: Date.now(),
+            duration: 600 // milliseconds
+        });
+    }
+
+    /**
+     * Render click indicators with animation
+     */
+    renderClickIndicators(offsetX, offsetY) {
+        const currentTime = Date.now();
+
+        // Remove expired indicators
+        this.clickIndicators = this.clickIndicators.filter(indicator => {
+            return (currentTime - indicator.startTime) < indicator.duration;
+        });
+
+        // Render active indicators
+        this.clickIndicators.forEach(indicator => {
+            const elapsed = currentTime - indicator.startTime;
+            const progress = elapsed / indicator.duration; // 0 to 1
+
+            // Position in pixels
+            const centerX = offsetX + (indicator.x + 0.5) * this.tileSize;
+            const centerY = offsetY + (indicator.y + 0.5) * this.tileSize;
+
+            // Expanding circle animation
+            const maxRadius = this.tileSize * 0.8;
+            const radius = maxRadius * progress;
+
+            // Fading opacity
+            const opacity = 1 - progress;
+
+            this.ctx.save();
+            this.ctx.globalAlpha = opacity;
+
+            // Draw outer circle (green)
+            this.ctx.strokeStyle = '#00ff00';
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+
+            // Draw inner circle (white)
+            this.ctx.strokeStyle = '#ffffff';
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            this.ctx.arc(centerX, centerY, radius * 0.5, 0, Math.PI * 2);
+            this.ctx.stroke();
+
+            // Draw crosshair
+            const crosshairSize = this.tileSize * 0.3;
+            this.ctx.strokeStyle = '#00ff00';
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            // Horizontal line
+            this.ctx.moveTo(centerX - crosshairSize, centerY);
+            this.ctx.lineTo(centerX + crosshairSize, centerY);
+            // Vertical line
+            this.ctx.moveTo(centerX, centerY - crosshairSize);
+            this.ctx.lineTo(centerX, centerY + crosshairSize);
+            this.ctx.stroke();
+
+            this.ctx.restore();
+        });
+    }
+
+    /**
+     * Set drag selection rectangle coordinates
+     * @param {number} startX - Start X in pixel coordinates
+     * @param {number} startY - Start Y in pixel coordinates
+     * @param {number} endX - End X in pixel coordinates
+     * @param {number} endY - End Y in pixel coordinates
+     */
+    setDragSelection(startX, startY, endX, endY) {
+        this.dragRect = { startX, startY, endX, endY };
+        this.render(); // Trigger re-render to show the rectangle
+    }
+
+    /**
+     * Clear drag selection rectangle
+     */
+    clearDragSelection() {
+        this.dragRect = null;
+        this.render(); // Trigger re-render to hide the rectangle
+    }
+
+    /**
+     * Render the drag selection rectangle
+     */
+    renderDragSelection() {
+        if (!this.dragRect) {
+            return;
+        }
+
+        const { startX, startY, endX, endY } = this.dragRect;
+
+        // Calculate rectangle bounds
+        const minX = Math.min(startX, endX);
+        const minY = Math.min(startY, endY);
+        const width = Math.abs(endX - startX);
+        const height = Math.abs(endY - startY);
+
+        this.ctx.save();
+
+        // Draw semi-transparent fill
+        this.ctx.fillStyle = 'rgba(0, 255, 0, 0.1)'; // Light green fill
+        this.ctx.fillRect(minX, minY, width, height);
+
+        // Draw border
+        this.ctx.strokeStyle = '#00ff00'; // Bright green border
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([4, 4]); // Dashed line
+        this.ctx.strokeRect(minX, minY, width, height);
+
+        // Reset line dash
+        this.ctx.setLineDash([]);
+
+        this.ctx.restore();
     }
 }

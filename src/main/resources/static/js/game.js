@@ -18,6 +18,14 @@ let hoveredBuilding = null; // Building under mouse cursor
 let settingRallyPoint = false; // Whether user is in rally point setting mode
 let lastHoverRenderTime = 0; // Timestamp of last hover render for throttling
 
+// Drag selection state
+let isDragging = false;
+let dragStartX = null;
+let dragStartY = null;
+let dragCurrentX = null;
+let dragCurrentY = null;
+let dragSelectionOccurred = false; // Flag to prevent click event after drag
+
 // DOM Elements
 const loadingScreen = document.getElementById('loadingScreen');
 const gameScreen = document.getElementById('gameScreen');
@@ -256,6 +264,8 @@ function handleGameUpdate(update) {
             // Efficient update: just update units without reloading entire map
             if (mapRenderer && update.units) {
                 mapRenderer.updateUnits(update.units);
+                // Update the unit details panel to reflect new positions
+                updateUnitsInfo();
             }
             break;
     }
@@ -459,6 +469,11 @@ function setupInputHandlers() {
     // Mouse move handler for hover effects
     canvas.addEventListener('mousemove', handleCanvasHover);
 
+    // Drag selection handlers
+    canvas.addEventListener('mousedown', handleCanvasMouseDown);
+    canvas.addEventListener('mouseup', handleCanvasMouseUp);
+    canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
+
     // Keyboard handler for hotkeys
     document.addEventListener('keydown', handleKeyPress);
 }
@@ -637,6 +652,12 @@ function updateBuildQueueDisplay(queue) {
  * Handle mouse clicks on the canvas
  */
 function handleCanvasClick(event) {
+    // Ignore click event if a drag selection just occurred
+    if (dragSelectionOccurred) {
+        dragSelectionOccurred = false;
+        return;
+    }
+
     if (!mapRenderer || !mapRenderer.mapData) {
         return;
     }
@@ -761,6 +782,9 @@ function handleCanvasRightClick(event) {
         // Filter to only move units owned by the current player
         const ownedUnits = filterOwnedUnits(selectedUnits);
         if (ownedUnits.length > 0) {
+            // Show click indicator
+            mapRenderer.addClickIndicator(tileX, tileY);
+            // Move the units
             moveUnitsTo(ownedUnits, tileX, tileY);
         }
     }
@@ -1106,6 +1130,16 @@ function handleCanvasHover(event) {
     const scaledMouseX = mouseX * scaleX;
     const scaledMouseY = mouseY * scaleY;
 
+    // Update drag selection if dragging
+    if (isDragging) {
+        dragCurrentX = scaledMouseX;
+        dragCurrentY = scaledMouseY;
+
+        // Update drag rectangle in renderer
+        mapRenderer.setDragSelection(dragStartX, dragStartY, dragCurrentX, dragCurrentY);
+        return;
+    }
+
     // Calculate map offset (same as in render method)
     const width = mapRenderer.mapData.width;
     const height = mapRenderer.mapData.height;
@@ -1159,6 +1193,184 @@ function updateHoverState() {
     const miniMapCanvas = document.getElementById('miniMap');
     if (miniMapCanvas) {
         mapRenderer.renderMinimap(miniMapCanvas);
+    }
+}
+
+/**
+ * Handle mouse down for drag selection
+ */
+function handleCanvasMouseDown(event) {
+    // Only handle left mouse button
+    if (event.button !== 0) {
+        return;
+    }
+
+    if (!mapRenderer || !mapRenderer.mapData) {
+        return;
+    }
+
+    const canvas = event.target;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // Scale click coordinates
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const scaledClickX = clickX * scaleX;
+    const scaledClickY = clickY * scaleY;
+
+    // Start drag
+    isDragging = true;
+    dragStartX = scaledClickX;
+    dragStartY = scaledClickY;
+    dragCurrentX = scaledClickX;
+    dragCurrentY = scaledClickY;
+}
+
+/**
+ * Handle mouse up to complete drag selection
+ */
+function handleCanvasMouseUp(event) {
+    // Only handle left mouse button
+    if (event.button !== 0) {
+        return;
+    }
+
+    if (!isDragging) {
+        return;
+    }
+
+    if (!mapRenderer || !mapRenderer.mapData) {
+        isDragging = false;
+        mapRenderer.clearDragSelection();
+        return;
+    }
+
+    const canvas = event.target;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // Scale click coordinates
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const scaledClickX = clickX * scaleX;
+    const scaledClickY = clickY * scaleY;
+
+    // Calculate selection rectangle
+    const minX = Math.min(dragStartX, scaledClickX);
+    const maxX = Math.max(dragStartX, scaledClickX);
+    const minY = Math.min(dragStartY, scaledClickY);
+    const maxY = Math.max(dragStartY, scaledClickY);
+
+    // Check if this was just a click (minimal drag distance)
+    const dragDistance = Math.sqrt(
+        Math.pow(scaledClickX - dragStartX, 2) +
+        Math.pow(scaledClickY - dragStartY, 2)
+    );
+
+    // If drag distance is less than 5 pixels, treat as click (let normal click handler work)
+    if (dragDistance < 5) {
+        isDragging = false;
+        dragSelectionOccurred = false;
+        mapRenderer.clearDragSelection();
+        return;
+    }
+
+    // Set flag to prevent click event from firing
+    dragSelectionOccurred = true;
+
+    // Convert to tile coordinates
+    const width = mapRenderer.mapData.width;
+    const height = mapRenderer.mapData.height;
+    const tileSize = mapRenderer.tileSize;
+    const offsetX = Math.max(0, (canvas.width - width * tileSize) / 2);
+    const offsetY = Math.max(0, (canvas.height - height * tileSize) / 2);
+
+    const minTileX = Math.floor((minX - offsetX) / tileSize);
+    const maxTileX = Math.floor((maxX - offsetX) / tileSize);
+    const minTileY = Math.floor((minY - offsetY) / tileSize);
+    const maxTileY = Math.floor((maxY - offsetY) / tileSize);
+
+    // Select units within the rectangle
+    selectUnitsInRectangle(minTileX, minTileY, maxTileX, maxTileY, event.shiftKey);
+
+    // Clear drag state
+    isDragging = false;
+    mapRenderer.clearDragSelection();
+}
+
+/**
+ * Handle mouse leaving canvas
+ */
+function handleCanvasMouseLeave(event) {
+    if (isDragging) {
+        isDragging = false;
+        mapRenderer.clearDragSelection();
+    }
+}
+
+/**
+ * Select units within a rectangular area
+ */
+function selectUnitsInRectangle(minX, minY, maxX, maxY, shiftHeld) {
+    if (!mapRenderer || !mapRenderer.mapData || !mapRenderer.mapData.units) {
+        return;
+    }
+
+    // Parse units
+    let units = mapRenderer.mapData.units;
+    if (typeof units === 'string') {
+        try {
+            units = JSON.parse(units);
+        } catch (e) {
+            return;
+        }
+    }
+
+    // Find units within rectangle that are owned by current player
+    const myPlayer = gamePlayers.find(p => p.playerName === playerName);
+    if (!myPlayer) return;
+
+    const unitsInRect = units.filter(unit => {
+        const displayPos = mapRenderer.unitDisplayPositions.get(unit.id) || { x: unit.x, y: unit.y };
+        const inRect = displayPos.x >= minX && displayPos.x <= maxX &&
+                       displayPos.y >= minY && displayPos.y <= maxY;
+        const isOwned = unit.playerNumber === myPlayer.playerSlot;
+        return inRect && isOwned;
+    });
+
+    if (unitsInRect.length > 0) {
+        if (shiftHeld) {
+            // Add to existing selection
+            const currentSelection = mapRenderer.getSelectedUnits();
+            const combined = [...currentSelection];
+            unitsInRect.forEach(unit => {
+                if (!combined.some(u => u.id === unit.id)) {
+                    combined.push(unit);
+                }
+            });
+            mapRenderer.setSelectedUnits(combined);
+        } else {
+            // Replace selection
+            mapRenderer.setSelectedUnits(unitsInRect);
+        }
+
+        // Deselect buildings when units are selected
+        deselectBuilding();
+
+        // Update info panel
+        updateUnitsInfo();
+
+        // Re-render
+        if (mapRenderer) {
+            mapRenderer.render();
+        }
+    } else if (!shiftHeld) {
+        // No units in rectangle and not holding shift - deselect all
+        deselectAllUnits();
+        deselectBuilding();
     }
 }
 
