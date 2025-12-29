@@ -8,6 +8,7 @@ let stompClient = null;
 let heartbeatInterval = null;
 let loadingTickInterval = null;
 let queueUpdateInterval = null;
+let mapUpdateInterval = null;
 let currentGame = null;
 let gamePlayers = [];
 let disconnectedPlayers = [];
@@ -15,6 +16,7 @@ let mapRenderer = null;
 let selectedBuilding = null; // Currently selected building (Town Center, etc.)
 let hoveredBuilding = null; // Building under mouse cursor
 let settingRallyPoint = false; // Whether user is in rally point setting mode
+let lastHoverRenderTime = 0; // Timestamp of last hover render for throttling
 
 // DOM Elements
 const loadingScreen = document.getElementById('loadingScreen');
@@ -120,9 +122,7 @@ async function loadPlayers() {
 
 async function loadMapData() {
     try {
-        console.log('Loading map data for game:', gameId);
         await mapRenderer.loadMap(gameId);
-        console.log('Map data loaded successfully');
     } catch (error) {
         console.error('Error loading map data:', error);
         // Continue without map - can be loaded later
@@ -200,9 +200,10 @@ function connectWebSocket() {
     const socket = new SockJS(WS_BASE_URL);
     stompClient = Stomp.over(socket);
 
-    stompClient.connect({}, function(frame) {
-        console.log('Connected to game WebSocket');
+    // Disable debug logging
+    stompClient.debug = null;
 
+    stompClient.connect({}, function(frame) {
         // Subscribe to game updates
         stompClient.subscribe(`/topic/game/${gameId}`, function(message) {
             const update = JSON.parse(message.body);
@@ -249,6 +250,12 @@ function handleGameUpdate(update) {
             // Reload map when units spawn or map changes
             if (mapRenderer) {
                 mapRenderer.loadMap(gameId);
+            }
+            break;
+        case 'UNITS_UPDATE':
+            // Efficient update: just update units without reloading entire map
+            if (mapRenderer && update.units) {
+                mapRenderer.updateUnits(update.units);
             }
             break;
     }
@@ -378,18 +385,14 @@ function transitionToGame() {
 function initializeGame() {
     const canvas = document.getElementById('gameCanvas');
 
+    // Start continuous render loop for smooth unit movement
+    if (mapRenderer && mapRenderer.mapData) {
+        mapRenderer.startRenderLoop();
 
-
-    // Render the map if loaded
-    if (mapRenderer && mapRenderer.mapData) {      
-        mapRenderer.render();
-        console.log('Map rendered on main canvas');
-
-        // Render minimap
+        // Render minimap (we'll update this periodically, not every frame)
         const miniMapCanvas = document.getElementById('miniMap');
         if (miniMapCanvas) {
             mapRenderer.renderMinimap(miniMapCanvas);
-            console.log('Map rendered on minimap');
         }
     } else {
         // Draw placeholder if map not loaded
@@ -430,6 +433,10 @@ function startQueueUpdates() {
     queueUpdateInterval = setInterval(() => {
         loadProductionQueue();
     }, 1000);
+
+    // Note: No longer polling for map updates!
+    // Instead, we'll receive WebSocket messages for unit position updates
+    // This is much more efficient than reloading the entire map every 100ms
 }
 
 /**
@@ -445,6 +452,9 @@ function setupInputHandlers() {
 
     // Mouse click handler for selecting buildings
     canvas.addEventListener('click', handleCanvasClick);
+
+    // Right-click handler for unit commands
+    canvas.addEventListener('contextmenu', handleCanvasRightClick);
 
     // Mouse move handler for hover effects
     canvas.addEventListener('mousemove', handleCanvasHover);
@@ -476,14 +486,12 @@ function setupProductionButtons() {
  */
 function handleProductionButtonClick(action) {
     if (!selectedBuilding) {
-        console.log('No building selected');
         return;
     }
 
     // Check if the selected building belongs to the player
     const myPlayer = gamePlayers.find(p => p.playerName === playerName);
     if (!myPlayer || selectedBuilding.playerNumber !== myPlayer.playerSlot) {
-        console.log('Cannot produce from enemy building');
         return;
     }
 
@@ -503,8 +511,6 @@ function handleProductionButtonClick(action) {
  * Produce a villager from the selected Town Center
  */
 async function produceVillager() {
-    console.log('Producing villager from TC at', selectedBuilding.x, selectedBuilding.y);
-
     try {
         const response = await fetch(`${API_BASE_URL}/${gameId}/produce-unit`, {
             method: 'POST',
@@ -526,7 +532,6 @@ async function produceVillager() {
         }
 
         const result = await response.json();
-        console.log('Villager production started:', result);
 
         // Resources will be updated via WebSocket
         // Refresh the build queue
@@ -676,15 +681,412 @@ function handleCanvasClick(event) {
         return;
     }
 
-    // Check if a building was clicked
-    const clickedBuilding = findBuildingAtPosition(tileX, tileY);
+    // Check if Shift key is held
+    const shiftHeld = event.shiftKey;
 
-    if (clickedBuilding) {
-        selectBuilding(clickedBuilding);
-    } else {
-        // Clicked on empty space - deselect
+    // Check if a unit was clicked first (units have priority over buildings)
+    const clickedUnit = mapRenderer.getUnitAt(tileX, tileY);
+
+    if (clickedUnit) {
+        const isOwnedByPlayer = isOwnedUnit(clickedUnit);
+
+        if (shiftHeld && isOwnedByPlayer) {
+            // Shift+Click: Only allow multi-select for owned units
+            toggleUnitSelection(clickedUnit);
+        } else {
+            // Normal click: Select this unit only (works for both owned and enemy)
+            selectUnit(clickedUnit);
+        }
         deselectBuilding();
+    } else {
+        // Check if a building was clicked
+        const clickedBuilding = findBuildingAtPosition(tileX, tileY);
+
+        if (clickedBuilding) {
+            // Select building, deselect all units
+            selectBuilding(clickedBuilding);
+            deselectAllUnits();
+        } else {
+            // Clicked on empty space
+            if (!shiftHeld) {
+                // Without Shift: deselect everything
+                deselectAllUnits();
+                deselectBuilding();
+            }
+            // With Shift: do nothing (keep current selection)
+        }
     }
+}
+
+/**
+ * Handle right-click on canvas for unit commands
+ */
+function handleCanvasRightClick(event) {
+    event.preventDefault(); // Prevent context menu
+
+    if (!mapRenderer || !mapRenderer.mapData) {
+        return;
+    }
+
+    const canvas = event.target;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // Scale click coordinates
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const scaledClickX = clickX * scaleX;
+    const scaledClickY = clickY * scaleY;
+
+    // Calculate map offset
+    const width = mapRenderer.mapData.width;
+    const height = mapRenderer.mapData.height;
+    const tileSize = mapRenderer.tileSize;
+    const offsetX = Math.max(0, (canvas.width - width * tileSize) / 2);
+    const offsetY = Math.max(0, (canvas.height - height * tileSize) / 2);
+
+    // Convert to tile coordinates
+    const tileX = Math.floor((scaledClickX - offsetX) / tileSize);
+    const tileY = Math.floor((scaledClickY - offsetY) / tileSize);
+
+    // Check if click is within map bounds
+    if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) {
+        return;
+    }
+
+    // If units are selected, move them to the clicked location
+    const selectedUnits = mapRenderer.getSelectedUnits();
+    if (selectedUnits.length > 0) {
+        // Filter to only move units owned by the current player
+        const ownedUnits = filterOwnedUnits(selectedUnits);
+        if (ownedUnits.length > 0) {
+            moveUnitsTo(ownedUnits, tileX, tileY);
+        }
+    }
+}
+
+/**
+ * Check if a unit is owned by the current player
+ */
+function isOwnedUnit(unit) {
+    const myPlayer = gamePlayers.find(p => p.playerName === playerName);
+    return myPlayer && unit.playerNumber === myPlayer.playerSlot;
+}
+
+/**
+ * Filter an array of units to only include those owned by the current player
+ */
+function filterOwnedUnits(units) {
+    const myPlayer = gamePlayers.find(p => p.playerName === playerName);
+    if (!myPlayer) return [];
+
+    return units.filter(unit => unit.playerNumber === myPlayer.playerSlot);
+}
+
+/**
+ * Select a single unit (clears previous selection)
+ */
+function selectUnit(unit) {
+    mapRenderer.setSelectedUnits([unit]);
+
+    // Update unit info panel
+    updateUnitsInfo();
+
+    // Hide production buttons when unit is selected
+    updateProductionButtons(null);
+
+    // Re-render to update visuals immediately
+    if (mapRenderer) {
+        mapRenderer.render();
+    }
+}
+
+/**
+ * Toggle a unit in the selection (for Shift+Click)
+ * Only allows multi-selection of units owned by the player
+ */
+function toggleUnitSelection(unit) {
+    const selectedUnits = mapRenderer.getSelectedUnits();
+    const isSelected = selectedUnits.some(u => u.id === unit.id);
+
+    // Don't allow adding enemy units to selection
+    if (!isSelected && !isOwnedUnit(unit)) {
+        return;
+    }
+
+    // If we have units selected, verify they're all owned by player
+    if (!isSelected && selectedUnits.length > 0) {
+        const hasEnemyUnits = selectedUnits.some(u => !isOwnedUnit(u));
+        if (hasEnemyUnits) {
+            // Clear enemy selection and start fresh with this unit
+            selectUnit(unit);
+            return;
+        }
+    }
+
+    if (isSelected) {
+        // Remove from selection
+        mapRenderer.removeSelectedUnit(unit);
+    } else {
+        // Add to selection (already verified it's owned by player)
+        mapRenderer.addSelectedUnit(unit);
+    }
+
+    // Update unit info panel
+    updateUnitsInfo();
+
+    // Hide production buttons when units are selected
+    updateProductionButtons(null);
+
+    // Re-render to update visuals immediately
+    if (mapRenderer) {
+        mapRenderer.render();
+    }
+}
+
+/**
+ * Deselect all units
+ */
+function deselectAllUnits() {
+    mapRenderer.setSelectedUnits([]);
+
+    // Clear info panel
+    updateUnitsInfo();
+
+    // Re-render to update visuals immediately
+    if (mapRenderer) {
+        mapRenderer.render();
+    }
+}
+
+/**
+ * Update the info panel with selected units details
+ */
+function updateUnitsInfo() {
+    const buildingInfoContent = document.getElementById('buildingInfoContent');
+    const selectedUnits = mapRenderer.getSelectedUnits();
+
+    if (selectedUnits.length === 0) {
+        buildingInfoContent.innerHTML = '<p class="info-placeholder">Select a building or unit to see details</p>';
+        return;
+    }
+
+    const myPlayer = gamePlayers.find(p => p.playerName === playerName);
+
+    if (selectedUnits.length === 1) {
+        // Single unit selected - show detailed info
+        const unit = selectedUnits[0];
+        const isOwned = myPlayer && unit.playerNumber === myPlayer.playerSlot;
+        const unitTypeName = unit.type === 'VILLAGER' ? 'Villager' : 'Soldier';
+        const healthPercent = Math.round((unit.health / unit.maxHealth) * 100);
+
+        if (isOwned) {
+            buildingInfoContent.innerHTML = `
+                <h3>${unitTypeName}</h3>
+                <p><strong>Owner:</strong> You</p>
+                <p><strong>Position:</strong> (${unit.x}, ${unit.y})</p>
+                <p><strong>Health:</strong> ${unit.health}/${unit.maxHealth} (${healthPercent}%)</p>
+                <p><strong>Status:</strong> ${unit.targetX !== null && unit.targetX !== undefined ? `Moving to (${unit.targetX}, ${unit.targetY})` : 'Idle'}</p>
+                <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px;">
+                    <small style="color: #aaa;">💡 Right-click to move | Shift+Click to multi-select</small>
+                </div>
+            `;
+        } else {
+            const owner = gamePlayers.find(p => p.playerSlot === unit.playerNumber);
+            const ownerName = owner ? owner.playerName : `Player ${unit.playerNumber}`;
+            buildingInfoContent.innerHTML = `
+                <h3>${unitTypeName}</h3>
+                <p><strong>Owner:</strong> ${ownerName}</p>
+                <p><strong>Position:</strong> (${unit.x}, ${unit.y})</p>
+                <div style="margin-top: 10px; padding: 8px; background: rgba(255,0,0,0.2); border: 1px solid rgba(255,0,0,0.4); border-radius: 4px;">
+                    <small style="color: #ff6666;">⚠️ Enemy unit - cannot control</small>
+                </div>
+            `;
+        }
+    } else {
+        // Multiple units selected - since we only allow multi-select of owned units, they're all owned
+        const villagerCount = selectedUnits.filter(u => u.type === 'VILLAGER').length;
+        const soldierCount = selectedUnits.filter(u => u.type === 'SOLDIER').length;
+
+        let unitBreakdown = '';
+        if (villagerCount > 0) unitBreakdown += `${villagerCount} Villager${villagerCount > 1 ? 's' : ''}<br>`;
+        if (soldierCount > 0) unitBreakdown += `${soldierCount} Soldier${soldierCount > 1 ? 's' : ''}`;
+
+        buildingInfoContent.innerHTML = `
+            <h3>${selectedUnits.length} Units Selected</h3>
+            <p><strong>Owner:</strong> You</p>
+            <p style="margin-top: 8px;">${unitBreakdown}</p>
+            <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px;">
+                <small style="color: #aaa;">💡 Right-click to move group | Shift+Click to modify selection</small>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Move a unit to a target location
+ */
+async function moveUnitTo(unit, targetX, targetY) {
+    // Verify player owns this unit
+    if (!isOwnedUnit(unit)) {
+        return;
+    }
+
+    try{
+        const response = await fetch(`${API_BASE_URL}/${gameId}/units/move`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                unitX: unit.x,
+                unitY: unit.y,
+                targetX: targetX,
+                targetY: targetY
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to move unit');
+        }
+    } catch (error) {
+        console.error('Error moving unit:', error);
+    }
+}
+
+/**
+ * Move multiple units to a target location with formation
+ */
+async function moveUnitsTo(units, targetX, targetY) {
+    // Calculate formation positions around the target
+    const formationPositions = calculateFormation(units.length, targetX, targetY);
+
+    // Send movement command for each selected unit to their formation position
+    for (let i = 0; i < units.length; i++) {
+        const unit = units[i];
+        const targetPos = formationPositions[i];
+
+        try {
+            await fetch(`${API_BASE_URL}/${gameId}/units/move`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    unitX: unit.x,
+                    unitY: unit.y,
+                    targetX: targetPos.x,
+                    targetY: targetPos.y
+                })
+            });
+        } catch (error) {
+            console.error(`Error moving unit at (${unit.x},${unit.y}):`, error);
+        }
+    }
+}
+
+/**
+ * Calculate formation positions for multiple units
+ * Creates a compact grid formation around the target point
+ */
+function calculateFormation(unitCount, centerX, centerY) {
+    const positions = [];
+
+    if (unitCount === 1) {
+        // Single unit goes to exact target
+        positions.push({ x: centerX, y: centerY });
+        return positions;
+    }
+
+    // Calculate grid size (try to make it roughly square)
+    const gridSize = Math.ceil(Math.sqrt(unitCount));
+
+    // Calculate starting offset to center the formation
+    const offsetX = Math.floor(gridSize / 2);
+    const offsetY = Math.floor(gridSize / 2);
+
+    // Generate positions in a grid pattern
+    let unitIndex = 0;
+    for (let row = 0; row < gridSize && unitIndex < unitCount; row++) {
+        for (let col = 0; col < gridSize && unitIndex < unitCount; col++) {
+            const posX = centerX + col - offsetX;
+            const posY = centerY + row - offsetY;
+
+            // Check if position is valid (within map bounds)
+            if (isValidPosition(posX, posY)) {
+                positions.push({ x: posX, y: posY });
+                unitIndex++;
+            }
+        }
+    }
+
+    // If we couldn't find enough valid positions, fill remaining with nearby positions
+    while (positions.length < unitCount) {
+        // Use a spiral pattern to find more positions
+        const spiralPos = findNearestValidPosition(centerX, centerY, positions);
+        if (spiralPos) {
+            positions.push(spiralPos);
+        } else {
+            // Fallback: just use center position
+            positions.push({ x: centerX, y: centerY });
+        }
+    }
+
+    return positions;
+}
+
+/**
+ * Check if a position is valid (within map bounds and not occupied by a building)
+ */
+function isValidPosition(x, y) {
+    if (!mapRenderer || !mapRenderer.mapData) {
+        return true; // Can't validate, assume valid
+    }
+
+    const width = mapRenderer.mapData.width;
+    const height = mapRenderer.mapData.height;
+
+    // Check map bounds
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+        return false;
+    }
+
+    // Check if there's a building at this position
+    const building = findBuildingAtPosition(x, y);
+    if (building) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Find the nearest valid position using a spiral search pattern
+ */
+function findNearestValidPosition(centerX, centerY, excludePositions) {
+    const maxRadius = 10; // Maximum search radius
+
+    for (let radius = 1; radius <= maxRadius; radius++) {
+        // Check positions in a square spiral at this radius
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                // Only check positions on the edge of the square
+                if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
+                    const x = centerX + dx;
+                    const y = centerY + dy;
+
+                    // Check if position is valid and not already used
+                    const alreadyUsed = excludePositions.some(pos => pos.x === x && pos.y === y);
+                    if (!alreadyUsed && isValidPosition(x, y)) {
+                        return { x, y };
+                    }
+                }
+            }
+        }
+    }
+
+    return null; // No valid position found
 }
 
 /**
@@ -717,34 +1119,46 @@ function handleCanvasHover(event) {
 
     // Check if mouse is within map bounds
     if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) {
-        if (hoveredBuilding !== null) {
+        if (hoveredBuilding !== null || mapRenderer.hoveredUnit !== null) {
             hoveredBuilding = null;
+            mapRenderer.setHoveredUnit(null);
             updateHoverState();
         }
         return;
     }
 
-    // Check if hovering over a building
+    // Check if hovering over a unit first (units have priority)
+    const unit = mapRenderer.getUnitAt(tileX, tileY);
     const building = findBuildingAtPosition(tileX, tileY);
-    if (building !== hoveredBuilding) {
+
+    // Update hover state if anything changed
+    if (unit !== mapRenderer.hoveredUnit || building !== hoveredBuilding) {
+        mapRenderer.setHoveredUnit(unit);
         hoveredBuilding = building;
         updateHoverState();
     }
 }
 
 /**
- * Update the hover state and re-render
+ * Update the hover state and re-render (throttled to 60ms / ~16 FPS)
  */
 function updateHoverState() {
-    if (mapRenderer) {
-        mapRenderer.setHoveredBuilding(hoveredBuilding);
-        mapRenderer.render();
+    if (!mapRenderer) return;
 
-        // Update minimap as well
-        const miniMapCanvas = document.getElementById('miniMap');
-        if (miniMapCanvas) {
-            mapRenderer.renderMinimap(miniMapCanvas);
-        }
+    // Throttle hover renders to max 16 FPS (every 60ms)
+    const now = Date.now();
+    if (now - lastHoverRenderTime < 60) {
+        return;
+    }
+    lastHoverRenderTime = now;
+
+    mapRenderer.setHoveredBuilding(hoveredBuilding);
+    mapRenderer.render();
+
+    // Update minimap as well
+    const miniMapCanvas = document.getElementById('miniMap');
+    if (miniMapCanvas) {
+        mapRenderer.renderMinimap(miniMapCanvas);
     }
 }
 
@@ -767,13 +1181,9 @@ function handleKeyPress(event) {
             const canvas = document.getElementById('gameCanvas');
             if (settingRallyPoint) {
                 canvas.style.cursor = 'crosshair';
-                console.log('Rally point mode enabled. Click on the map to set rally point.');
             } else {
                 canvas.style.cursor = 'default';
-                console.log('Rally point mode disabled.');
             }
-        } else {
-            console.log('Select a building first before setting a rally point.');
         }
         return;
     }
@@ -854,7 +1264,6 @@ function selectTownCenter() {
  */
 function selectBuilding(building) {
     selectedBuilding = building;
-    console.log('Selected building:', building);
 
     // Update renderer to show selection
     if (mapRenderer) {
@@ -919,7 +1328,7 @@ function updateBuildingInfo(building) {
     const buildingInfoContent = document.getElementById('buildingInfoContent');
 
     if (!building) {
-        buildingInfoContent.innerHTML = '<p class="info-placeholder">Select a building to see details</p>';
+        buildingInfoContent.innerHTML = '<p class="info-placeholder">Select a building or unit to see details</p>';
         return;
     }
 
@@ -954,7 +1363,6 @@ function updateBuildingInfo(building) {
  */
 function deselectBuilding() {
     selectedBuilding = null;
-    console.log('Deselected building');
 
     // Reset rally point mode
     if (settingRallyPoint) {
@@ -981,8 +1389,10 @@ function deselectBuilding() {
         }
     }
 
-    // Clear building info panel
-    updateBuildingInfo(null);
+    // Only clear building info panel if no units are selected
+    if (!mapRenderer || !mapRenderer.hasSelectedUnits()) {
+        updateBuildingInfo(null);
+    }
 
     // Disable all production buttons
     updateProductionButtons(null);
@@ -999,7 +1409,6 @@ function deselectBuilding() {
  */
 function toggleRallyPointMode() {
     if (!selectedBuilding) {
-        console.log('No building selected');
         return;
     }
 
@@ -1012,11 +1421,9 @@ function toggleRallyPointMode() {
     if (settingRallyPoint) {
         canvas.style.cursor = 'crosshair';
         if (rallyBtn) rallyBtn.classList.add('active');
-        console.log('Rally point mode enabled. Click on the map to set rally point.');
     } else {
         canvas.style.cursor = 'default';
         if (rallyBtn) rallyBtn.classList.remove('active');
-        console.log('Rally point mode disabled.');
     }
 }
 
@@ -1055,8 +1462,6 @@ async function setRallyPoint(tileX, tileY) {
             throw new Error(errorData.error || 'Failed to set rally point');
         }
 
-        console.log(`Rally point set to (${tileX}, ${tileY}) for building at (${buildingX}, ${buildingY})`);
-
         // Reload map to show updated rally point
         if (mapRenderer) {
             await mapRenderer.loadMap(gameId);
@@ -1068,7 +1473,6 @@ async function setRallyPoint(tileX, tileY) {
                 );
 
                 if (updatedBuilding) {
-                    console.log('Rally point on updated building:', updatedBuilding.rallyPointX, updatedBuilding.rallyPointY);
                     selectedBuilding = updatedBuilding;
                     mapRenderer.setSelectedBuilding(updatedBuilding);
                 }
@@ -1122,6 +1526,15 @@ window.addEventListener('beforeunload', () => {
     }
     if (loadingTickInterval) {
         clearInterval(loadingTickInterval);
+    }
+    if (queueUpdateInterval) {
+        clearInterval(queueUpdateInterval);
+    }
+    if (mapUpdateInterval) {
+        clearInterval(mapUpdateInterval);
+    }
+    if (mapRenderer) {
+        mapRenderer.stopRenderLoop();
     }
     if (stompClient) {
         stompClient.disconnect();

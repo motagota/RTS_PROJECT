@@ -30,6 +30,8 @@ class MapRenderer {
         this.zoom = 1.0;
         this.selectedBuilding = null;  // Currently selected building
         this.hoveredBuilding = null;   // Currently hovered building
+        this.selectedUnits = [];       // Array of selected units (for multi-selection)
+        this.hoveredUnit = null;       // Currently hovered unit
     }
 
     /**
@@ -43,7 +45,6 @@ class MapRenderer {
             }
 
             this.mapData = await response.json();
-            console.log('Map loaded:', this.mapData);
 
             // Parse terrain data if it's a JSON string
             if (typeof this.mapData.terrainData === 'string') {
@@ -59,9 +60,6 @@ class MapRenderer {
             if (typeof this.mapData.buildings === 'string') {
                 this.mapData.buildings = JSON.parse(this.mapData.buildings);
             }
-
-            // Debug log buildings data
-            console.log('Buildings loaded:', this.mapData.buildings);
 
             const canvasWidth = this.mapData.width * this.tileSize;
             const canvasHeight = this.mapData.height * this.tileSize;
@@ -309,7 +307,6 @@ class MapRenderer {
 
             // Draw rally point if set and building is selected
             if (building.rallyPointX != null && building.rallyPointY != null && isSelected) {
-                console.log('Rendering rally point for building at', building.x, building.y, 'to', building.rallyPointX, building.rallyPointY);
                 this.renderRallyPoint(offsetX, offsetY, building);
             }
         });
@@ -408,6 +405,27 @@ class MapRenderer {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(symbol, centerX, centerY);
+
+            // Draw selection indicator if this unit is selected
+            const isSelected = this.selectedUnits.some(u => u.id === unit.id);
+            if (isSelected) {
+                this.ctx.strokeStyle = '#00ff00';  // Green selection
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, unitSize / 2 + 3, 0, Math.PI * 2);
+                this.ctx.stroke();
+            }
+
+            // Draw hover indicator if this unit is hovered
+            if (this.hoveredUnit && this.hoveredUnit.id === unit.id) {
+                this.ctx.strokeStyle = '#ffff00';  // Yellow hover
+                this.ctx.lineWidth = 1;
+                this.ctx.globalAlpha = 0.6;
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, unitSize / 2 + 3, 0, Math.PI * 2);
+                this.ctx.stroke();
+                this.ctx.globalAlpha = 1.0;
+            }
         });
     }
 
@@ -662,5 +680,164 @@ class MapRenderer {
         this.ctx.globalAlpha = 0.6;
         this.ctx.strokeRect(x - 1, y - 1, width + 2, height + 2);
         this.ctx.globalAlpha = 1.0;
+    }
+
+    /**
+     * Update units data without reloading entire map
+     * @param {Array} units - Updated units array
+     */
+    updateUnits(units) {
+        if (!this.mapData) {
+            console.warn('Cannot update units: map data not loaded');
+            return;
+        }
+
+        // Update selected units to maintain selection through position changes
+        // Simply match by ID - much simpler!
+        if (this.selectedUnits.length > 0) {
+            const selectedIds = this.selectedUnits.map(u => u.id);
+            this.selectedUnits = units.filter(u => selectedIds.includes(u.id));
+        }
+
+        // Update units in map data
+        this.mapData.units = units;
+
+        // Re-render the entire scene
+        this.render();
+    }
+
+    /**
+     * Update a single unit's position
+     * @param {number} unitId - Unit identifier (or use x,y coords)
+     * @param {number} newX - New X position
+     * @param {number} newY - New Y position
+     */
+    updateUnitPosition(oldX, oldY, newX, newY) {
+        if (!this.mapData || !this.mapData.units) {
+            return;
+        }
+
+        // Parse units if string
+        let units = this.mapData.units;
+        if (typeof units === 'string') {
+            try {
+                units = JSON.parse(units);
+                this.mapData.units = units;
+            } catch (e) {
+                console.error('Failed to parse units:', e);
+                return;
+            }
+        }
+
+        // Find and update the unit
+        const unit = units.find(u => u.x === oldX && u.y === oldY);
+        if (unit) {
+            unit.x = newX;
+            unit.y = newY;
+            this.render(); // Re-render scene
+        }
+    }
+
+    /**
+     * Start a render loop for smooth animations
+     * Call this once when the game starts
+     */
+    startRenderLoop() {
+        // Removed continuous animation loop - we now render only on changes
+        // Initial render
+        this.render();
+    }
+
+    /**
+     * Stop the render loop
+     */
+    stopRenderLoop() {
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+    }
+
+    /**
+     * Get unit at a specific map coordinate
+     * @param {number} mapX - Map X coordinate (in tiles)
+     * @param {number} mapY - Map Y coordinate (in tiles)
+     * @returns {Object|null} Unit at that position or null
+     */
+    getUnitAt(mapX, mapY) {
+        if (!this.mapData || !this.mapData.units) {
+            return null;
+        }
+
+        let units = this.mapData.units;
+        if (typeof units === 'string') {
+            try {
+                units = JSON.parse(units);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        return units.find(unit => unit.x === mapX && unit.y === mapY) || null;
+    }
+
+    /**
+     * Set the selected units (replaces current selection)
+     * @param {Array} units - Array of units to select
+     */
+    setSelectedUnits(units) {
+        this.selectedUnits = units || [];
+    }
+
+    /**
+     * Add a unit to the selection (for Shift+Click)
+     * @param {Object} unit - Unit to add to selection
+     */
+    addSelectedUnit(unit) {
+        // Check if already selected (by ID)
+        const alreadySelected = this.selectedUnits.some(u => u.id === unit.id);
+        if (!alreadySelected) {
+            this.selectedUnits.push(unit);
+        }
+    }
+
+    /**
+     * Remove a unit from the selection
+     * @param {Object} unit - Unit to remove
+     */
+    removeSelectedUnit(unit) {
+        this.selectedUnits = this.selectedUnits.filter(u => u.id !== unit.id);
+    }
+
+    /**
+     * Get all currently selected units
+     * @returns {Array}
+     */
+    getSelectedUnits() {
+        return this.selectedUnits;
+    }
+
+    /**
+     * Check if any units are selected
+     * @returns {boolean}
+     */
+    hasSelectedUnits() {
+        return this.selectedUnits.length > 0;
+    }
+
+    /**
+     * Set the currently hovered unit
+     * @param {Object|null} unit - Unit to hover or null to clear hover
+     */
+    setHoveredUnit(unit) {
+        this.hoveredUnit = unit;
+    }
+
+    /**
+     * Get the currently hovered unit
+     * @returns {Object|null}
+     */
+    getHoveredUnit() {
+        return this.hoveredUnit;
     }
 }

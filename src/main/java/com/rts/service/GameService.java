@@ -39,6 +39,9 @@ public class GameService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    @Autowired
+    private MovementService movementService;
+
     // Thread pool for managing game instances
     private final ExecutorService gameExecutor = Executors.newCachedThreadPool();
 
@@ -359,9 +362,27 @@ public class GameService {
                             Map.of("type", "PRODUCTION_QUEUE_UPDATE",
                                     "playerName", item.getPlayerName()));
 
-                    // Notify that map has changed (new unit spawned)
-                    messagingTemplate.convertAndSend("/topic/game/" + gameId,
-                            Map.of("type", "MAP_UPDATE"));
+                    // Notify that units have changed (new unit spawned)
+                    // Get updated unit list and broadcast
+                    Optional<GeneratedMap> mapOpt = mapService.getGeneratedMapByGameId(gameId);
+                    if (mapOpt.isPresent()) {
+                        GeneratedMap generatedMap = mapOpt.get();
+                        String unitsJson = generatedMap.getUnits();
+                        if (unitsJson != null && !unitsJson.isEmpty()) {
+                            try {
+                                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                                java.util.List<Unit> units = mapper.readValue(
+                                        unitsJson,
+                                        mapper.getTypeFactory().constructCollectionType(java.util.List.class, Unit.class)
+                                );
+                                messagingTemplate.convertAndSend("/topic/game/" + gameId,
+                                        Map.of("type", "UNITS_UPDATE",
+                                                "units", units));
+                            } catch (Exception e) {
+                                System.err.println("Error deserializing units: " + e.getMessage());
+                            }
+                        }
+                    }
 
                 } catch (Exception e) {
                     System.err.println("ERROR: Failed to complete production for game " + gameId + ": " + e.getMessage());
@@ -382,10 +403,13 @@ public class GameService {
         System.out.println(">>> Parsed unit type: " + unitType);
         System.out.flush();
 
-        // Find spawn position (rally point or default position)
-        int spawnX = item.getBuildingX() + 2; // Default: spawn to the right of building
+        // Spawn unit next to the building (not at rally point)
+        int spawnX = item.getBuildingX() + 2; // Spawn to the right of building
         int spawnY = item.getBuildingY();
-        System.out.println(">>> Default spawn pos: (" + spawnX + "," + spawnY + ")");
+        System.out.println(">>> Spawn pos next to building: (" + spawnX + "," + spawnY + ")");
+
+        Integer rallyPointX = null;
+        Integer rallyPointY = null;
 
         // Check if building has a rally point set
         try {
@@ -407,11 +431,11 @@ public class GameService {
                             building.getY() == item.getBuildingY() &&
                             building.getType().name().equals(item.getBuildingType())) {
 
-                            // Check if rally point is set
+                            // Get rally point if set
                             if (building.getRallyPointX() != null && building.getRallyPointY() != null) {
-                                spawnX = building.getRallyPointX();
-                                spawnY = building.getRallyPointY();
-                                System.out.println("Spawning unit at rally point: (" + spawnX + "," + spawnY + ")");
+                                rallyPointX = building.getRallyPointX();
+                                rallyPointY = building.getRallyPointY();
+                                System.out.println("Rally point found: (" + rallyPointX + "," + rallyPointY + ")");
                             }
                             break;
                         }
@@ -419,16 +443,22 @@ public class GameService {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error checking rally point, using default spawn position: " + e.getMessage());
+            System.err.println("Error checking rally point: " + e.getMessage());
         }
 
-        // Spawn the unit
+        // Spawn the unit next to the building
         System.out.println(">>> Before mapService.spawnUnit call");
         System.out.flush();
         System.out.println(">>> Calling mapService.spawnUnit with gameId=" + gameId + ", pos=(" + spawnX + "," + spawnY + "), type=" + unitType + ", player=" + item.getPlayerSlot());
         System.out.flush();
 
         mapService.spawnUnit(gameId, spawnX, spawnY, unitType, item.getPlayerSlot());
+
+        // If rally point is set, make the unit walk there
+        if (rallyPointX != null && rallyPointY != null) {
+            System.out.println("Setting unit to walk to rally point: (" + rallyPointX + "," + rallyPointY + ")");
+            mapService.setUnitDestination(gameId, spawnX, spawnY, rallyPointX, rallyPointY);
+        }
 
         System.out.println(">>> After mapService.spawnUnit call - completed successfully");
         System.out.flush();
@@ -571,6 +601,10 @@ public class GameService {
 
                         // Process production queue
                         gameService.processProductionQueue(gameId);
+
+                        // Process unit movement
+                        System.out.println("DEBUG: Game loop calling processUnitMovement for game " + gameId);
+                        gameService.mapService.processUnitMovement(gameId);
 
                         // TODO: Additional game logic here
                         // - Update game state

@@ -232,4 +232,23 @@ public class GameController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    @PostMapping("/{id}/units/move")
+    public ResponseEntity<?> moveUnit(@PathVariable Long id, @RequestBody Map<String, Object> request) {
+        try {
+            Integer unitX = (Integer) request.get("unitX");
+            Integer unitY = (Integer) request.get("unitY");
+            Integer targetX = (Integer) request.get("targetX");
+            Integer targetY = (Integer) request.get("targetY");
+
+            System.out.println("Moving unit at (" + unitX + "," + unitY + ") to (" + targetX + "," + targetY + ")");
+
+            mapService.setUnitDestination(id, unitX, unitY, targetX, targetY);
+
+            return ResponseEntity.ok(Map.of("status", "unit movement queued"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }

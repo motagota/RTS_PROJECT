@@ -7,6 +7,7 @@ import com.rts.model.Building;
 import com.rts.model.GeneratedMap;
 import com.rts.model.MapGrid;
 import com.rts.model.MapTemplate;
+import com.rts.model.Unit;
 import com.rts.repository.GeneratedMapRepository;
 import com.rts.repository.MapTemplateRepository;
 import com.rts.service.map.MapGenerationContext;
@@ -51,6 +52,15 @@ public class MapService {
 
     @Autowired
     private StreamingMapExecutor streamingMapExecutor;
+
+    @Autowired
+    private MovementService movementService;
+
+    @Autowired
+    private PathfindingService pathfindingService;
+
+    @Autowired
+    private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, RMSCommand> rmsCommands = new HashMap<>();
@@ -257,8 +267,13 @@ public class MapService {
             generatedMap.setBuildings(buildingsJson);
             System.out.println("Serialized " + grid.getBuildings().size() + " buildings");
 
+            // Spawn initial villagers for each player near their headquarters
+            List<Unit> initialUnits = spawnInitialVillagers(grid.getBuildings(), playerCount);
+            String unitsJson = objectMapper.writeValueAsString(initialUnits);
+            generatedMap.setUnits(unitsJson);
+            System.out.println("Spawned " + initialUnits.size() + " initial villagers");
+
             generatedMap.setPlayerStarts("[]"); // TODO: Extract player starts from grid
-            generatedMap.setUnits("[]"); // Initialize empty units array
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize map data", e);
         }
@@ -320,6 +335,57 @@ public class MapService {
         }
 
         return objectMapper.writeValueAsString(buildingData);
+    }
+
+    /**
+     * Spawn initial villagers for each player near their headquarters
+     * @param buildings List of buildings (including headquarters)
+     * @param playerCount Number of players
+     * @return List of initial villager units
+     */
+    private List<Unit> spawnInitialVillagers(List<Building> buildings, int playerCount) {
+        List<Unit> villagers = new ArrayList<>();
+        int villagersPerPlayer = 3; // Spawn 3 villagers per player
+
+        // Find each player's headquarters
+        for (int playerNum = 1; playerNum <= playerCount; playerNum++) {
+            final int currentPlayer = playerNum;
+            Building headquarters = buildings.stream()
+                    .filter(b -> b.getType() == Building.BuildingType.HEADQUARTERS
+                              && b.getPlayerNumber() == currentPlayer)
+                    .findFirst()
+                    .orElse(null);
+
+            if (headquarters != null) {
+                // Spawn villagers around the headquarters
+                int hqX = headquarters.getX();
+                int hqY = headquarters.getY();
+                int hqWidth = headquarters.getWidth();
+                int hqHeight = headquarters.getHeight();
+
+                // Spawn positions: to the right and below the headquarters
+                int[][] spawnOffsets = {
+                    {hqWidth, 0},           // Right of HQ
+                    {hqWidth + 1, 0},       // Further right
+                    {hqWidth, 1}            // Right and down
+                };
+
+                for (int i = 0; i < villagersPerPlayer && i < spawnOffsets.length; i++) {
+                    int spawnX = hqX + spawnOffsets[i][0];
+                    int spawnY = hqY + spawnOffsets[i][1];
+
+                    Unit villager = new Unit(spawnX, spawnY, Unit.UnitType.VILLAGER, playerNum);
+                    villagers.add(villager);
+                }
+
+                System.out.println("Spawned " + villagersPerPlayer + " villagers for player " + playerNum
+                                 + " near HQ at (" + hqX + "," + hqY + ")");
+            } else {
+                System.err.println("Warning: No headquarters found for player " + playerNum);
+            }
+        }
+
+        return villagers;
     }
 
     /**
@@ -522,5 +588,191 @@ public class MapService {
      */
     public void saveGeneratedMap(GeneratedMap generatedMap) {
         generatedMapRepository.save(generatedMap);
+    }
+
+    /**
+     * Set a unit's destination for pathfinding
+     */
+    public void setUnitDestination(Long gameId, int unitX, int unitY, int targetX, int targetY) {
+        try {
+            Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                System.err.println("Map not found for game " + gameId);
+                return;
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+
+            // Get units
+            String unitsJson = generatedMap.getUnits();
+            if (unitsJson == null || unitsJson.isEmpty()) {
+                System.err.println("No units found on map");
+                return;
+            }
+
+            java.util.List<com.rts.model.Unit> units = objectMapper.readValue(
+                    unitsJson,
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, com.rts.model.Unit.class)
+            );
+
+            // Get buildings
+            String buildingsJson = generatedMap.getBuildings();
+            java.util.List<Building> buildings = null;
+            if (buildingsJson != null && !buildingsJson.isEmpty()) {
+                buildings = objectMapper.readValue(
+                        buildingsJson,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Building.class)
+                );
+            }
+
+            // Get terrain data
+            byte[] terrainData = generatedMap.getTerrainData();
+
+            // Find the unit at the specified position
+            com.rts.model.Unit targetUnit = null;
+            for (com.rts.model.Unit unit : units) {
+                if (unit.getX() == unitX && unit.getY() == unitY) {
+                    targetUnit = unit;
+                    break;
+                }
+            }
+
+            if (targetUnit == null) {
+                System.err.println("Unit not found at position (" + unitX + "," + unitY + ")");
+                return;
+            }
+
+            // Set destination using movement service
+            movementService.setUnitDestination(
+                    targetUnit, targetX, targetY,
+                    terrainData, buildings, units,
+                    generatedMap.getWidth(), generatedMap.getHeight()
+            );
+
+            System.out.println("DEBUG: After setUnitDestination - targetX=" + targetUnit.getTargetX() + " targetY=" + targetUnit.getTargetY() + " isMoving=" + targetUnit.isMoving());
+
+            // Save updated units
+            unitsJson = objectMapper.writeValueAsString(units);
+            System.out.println("DEBUG: Units JSON being saved: " + unitsJson.substring(0, Math.min(200, unitsJson.length())));
+            generatedMap.setUnits(unitsJson);
+            saveGeneratedMap(generatedMap);
+
+            // Immediately broadcast the updated units so clients see the movement start
+            broadcastUnitUpdate(gameId, units);
+
+            System.out.println("Set unit at (" + unitX + "," + unitY + ") to move to (" + targetX + "," + targetY + ")");
+
+        } catch (Exception e) {
+            System.err.println("Error setting unit destination: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Process movement for all units in a game
+     */
+    public void processUnitMovement(Long gameId) {
+        try {
+            System.out.println("DEBUG: processUnitMovement called for game " + gameId);
+            Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                System.out.println("DEBUG: No map found for game " + gameId);
+                return;
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+
+            // Get units
+            String unitsJson = generatedMap.getUnits();
+            if (unitsJson == null || unitsJson.isEmpty()) {
+                System.out.println("DEBUG: No units JSON found");
+                return;
+            }
+
+            java.util.List<com.rts.model.Unit> units = objectMapper.readValue(
+                    unitsJson,
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, com.rts.model.Unit.class)
+            );
+
+            System.out.println("DEBUG: Loaded " + units.size() + " units from JSON");
+
+            // Check if any units are moving
+            boolean anyMoving = false;
+            for (com.rts.model.Unit unit : units) {
+                System.out.println("  Unit " + unit.getId() + " at (" + unit.getX() + "," + unit.getY() +
+                    ") targetX=" + unit.getTargetX() + " targetY=" + unit.getTargetY() + " isMoving=" + unit.isMoving());
+                if (unit.isMoving()) {
+                    anyMoving = true;
+                    System.out.println("  ^^^ This unit IS MOVING ^^^");
+                }
+            }
+
+            // Skip if no units are moving
+            if (!anyMoving) {
+                return;
+            }
+
+            // Get buildings
+            String buildingsJson = generatedMap.getBuildings();
+            java.util.List<Building> buildings = null;
+            if (buildingsJson != null && !buildingsJson.isEmpty()) {
+                buildings = objectMapper.readValue(
+                        buildingsJson,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Building.class)
+                );
+            }
+
+            // Get terrain data
+            byte[] terrainData = generatedMap.getTerrainData();
+
+            // Process movement
+            movementService.processUnitMovement(
+                    units, terrainData, buildings,
+                    generatedMap.getWidth(), generatedMap.getHeight()
+            );
+
+            // Save updated units
+            String updatedUnitsJson = objectMapper.writeValueAsString(units);
+            generatedMap.setUnits(updatedUnitsJson);
+            saveGeneratedMap(generatedMap);
+
+            // Broadcast unit updates to all players via WebSocket
+            broadcastUnitUpdate(gameId, units);
+
+        } catch (Exception e) {
+            System.err.println("Error processing unit movement for game " + gameId + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Broadcast unit position updates to all players in a game
+     */
+    private void broadcastUnitUpdate(Long gameId, java.util.List<com.rts.model.Unit> units) {
+        try {
+            System.out.println("DEBUG: Broadcasting unit update for game " + gameId + " with " + units.size() + " units");
+
+            // Log first unit with target
+            for (com.rts.model.Unit u : units) {
+                if (u.getTargetX() != null && u.getTargetY() != null) {
+                    System.out.println("  -> Unit " + u.getId() + " at (" + u.getX() + "," + u.getY() +
+                        ") targeting (" + u.getTargetX() + "," + u.getTargetY() + ") isMoving=" + u.isMoving());
+                    break;
+                }
+            }
+
+            // Create update message
+            java.util.Map<String, Object> update = new java.util.HashMap<>();
+            update.put("type", "UNITS_UPDATE");
+            update.put("units", units);
+
+            // Send to all players in this game
+            messagingTemplate.convertAndSend("/topic/game/" + gameId, update);
+            System.out.println("DEBUG: Broadcast sent successfully");
+
+        } catch (Exception e) {
+            System.err.println("Error broadcasting unit update: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }

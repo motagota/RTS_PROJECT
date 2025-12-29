@@ -3,6 +3,7 @@ package com.rts.model;
 /**
  * Represents a unit (like villagers, soldiers) on the map
  */
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 public class Unit {
 
     public enum UnitType {
@@ -56,6 +57,9 @@ public class Unit {
         }
     }
 
+    private static int nextId = 1;  // Static counter for generating unique IDs
+
+    private int id;  // Unique identifier for this unit
     private int x;
     private int y;
     private UnitType type;
@@ -63,11 +67,22 @@ public class Unit {
     private int health;
     private int maxHealth;
 
+    // Movement-related fields
+    private Integer targetX;  // Destination X coordinate
+    private Integer targetY;  // Destination Y coordinate
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient java.util.List<PathNode> path;  // Pathfinding path to follow (not serialized)
+
+    private double movementSpeed = 0.1;  // Tiles per game tick (10 ticks/sec = 1 tile/sec)
+
     // No-arg constructor for Jackson deserialization
     public Unit() {
+        this.id = nextId++;
     }
 
     public Unit(int x, int y, UnitType type, int playerNumber) {
+        this.id = nextId++;
         this.x = x;
         this.y = y;
         this.type = type;
@@ -87,6 +102,14 @@ public class Unit {
     }
 
     // Getters and Setters
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
     public int getX() {
         return x;
     }
@@ -135,11 +158,49 @@ public class Unit {
         this.maxHealth = maxHealth;
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public int getWidth() {
         return type.getWidth();
     }
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public int getHeight() {
         return type.getHeight();
+    }
+
+    public Integer getTargetX() {
+        return targetX;
+    }
+
+    public void setTargetX(Integer targetX) {
+        this.targetX = targetX;
+    }
+
+    public Integer getTargetY() {
+        return targetY;
+    }
+
+    public void setTargetY(Integer targetY) {
+        this.targetY = targetY;
+    }
+
+    public java.util.List<PathNode> getPath() {
+        return path;
+    }
+
+    public void setPath(java.util.List<PathNode> path) {
+        this.path = path;
+    }
+
+    public double getMovementSpeed() {
+        return movementSpeed;
+    }
+
+    public void setMovementSpeed(double movementSpeed) {
+        this.movementSpeed = movementSpeed;
+    }
+
+    public boolean isMoving() {
+        return targetX != null && targetY != null && (x != targetX || y != targetY);
     }
 }
