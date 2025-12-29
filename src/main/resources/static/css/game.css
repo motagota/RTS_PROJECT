@@ -459,7 +459,8 @@ body {
     align-items: stretch;
     gap: 20px;
     border-top: 2px solid #00d4ff;
-    min-height: 180px;
+    height: 180px;
+    flex-shrink: 0;
 }
 
 /* Building Info Panel (Left) */
@@ -470,6 +471,7 @@ body {
     border-radius: 8px;
     padding: 15px;
     min-width: 250px;
+    overflow-y: auto;
 }
 
 .building-info-content {

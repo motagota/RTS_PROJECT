@@ -26,6 +26,9 @@ let dragCurrentX = null;
 let dragCurrentY = null;
 let dragSelectionOccurred = false; // Flag to prevent click event after drag
 
+// Double-click state
+let doubleClickHandled = false;
+
 // DOM Elements
 const loadingScreen = document.getElementById('loadingScreen');
 const gameScreen = document.getElementById('gameScreen');
@@ -463,6 +466,9 @@ function setupInputHandlers() {
     // Mouse click handler for selecting buildings
     canvas.addEventListener('click', handleCanvasClick);
 
+    // Double-click handler for selecting all units of same type
+    canvas.addEventListener('dblclick', handleCanvasDoubleClick);
+
     // Right-click handler for unit commands
     canvas.addEventListener('contextmenu', handleCanvasRightClick);
 
@@ -658,6 +664,25 @@ function handleCanvasClick(event) {
         return;
     }
 
+    // Ignore if double-click was just handled
+    if (doubleClickHandled) {
+        doubleClickHandled = false;
+        return;
+    }
+
+    // event.detail === 2 means this is part of a double-click sequence
+    // We'll let the dblclick handler deal with it
+    if (event.detail === 2) {
+        return;
+    }
+
+    performClickAction(event);
+}
+
+/**
+ * Perform the actual click action
+ */
+function performClickAction(event) {
     if (!mapRenderer || !mapRenderer.mapData) {
         return;
     }
@@ -735,6 +760,100 @@ function handleCanvasClick(event) {
                 deselectBuilding();
             }
             // With Shift: do nothing (keep current selection)
+        }
+    }
+}
+
+/**
+ * Handle double-click on canvas to select all units of same type
+ */
+function handleCanvasDoubleClick(event) {
+    // Set flag to prevent the second click from the double-click from being processed
+    doubleClickHandled = true;
+
+    if (!mapRenderer || !mapRenderer.mapData) {
+        return;
+    }
+
+    const canvas = event.target;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // Scale click coordinates if canvas is displayed at different size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const scaledClickX = clickX * scaleX;
+    const scaledClickY = clickY * scaleY;
+
+    // Calculate map offset (same as in render method)
+    const width = mapRenderer.mapData.width;
+    const height = mapRenderer.mapData.height;
+    const tileSize = mapRenderer.tileSize;
+    const offsetX = Math.max(0, (canvas.width - width * tileSize) / 2);
+    const offsetY = Math.max(0, (canvas.height - height * tileSize) / 2);
+
+    // Convert click position to tile coordinates
+    const tileX = Math.floor((scaledClickX - offsetX) / tileSize);
+    const tileY = Math.floor((scaledClickY - offsetY) / tileSize);
+
+    // Check if click is within map bounds
+    if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) {
+        return;
+    }
+
+    // Check if a unit was double-clicked
+    const clickedUnit = mapRenderer.getUnitAt(tileX, tileY);
+
+    if (clickedUnit && isOwnedUnit(clickedUnit)) {
+        // Select all units of the same type that are owned by the player
+        selectAllUnitsOfType(clickedUnit.type);
+    }
+}
+
+/**
+ * Select all units of a specific type owned by the player
+ */
+function selectAllUnitsOfType(unitType) {
+    if (!mapRenderer || !mapRenderer.mapData || !mapRenderer.mapData.units) {
+        return;
+    }
+
+    // Parse units
+    let units = mapRenderer.mapData.units;
+    if (typeof units === 'string') {
+        try {
+            units = JSON.parse(units);
+        } catch (e) {
+            return;
+        }
+    }
+
+    // Find current player
+    const myPlayer = gamePlayers.find(p => p.playerName === playerName);
+    if (!myPlayer) return;
+
+    // Find all units of the same type owned by the player
+    const unitsOfType = units.filter(unit =>
+        unit.type === unitType && unit.playerNumber === myPlayer.playerNumber
+    );
+
+    if (unitsOfType.length > 0) {
+        // Select all units of this type
+        mapRenderer.setSelectedUnits(unitsOfType);
+
+        // Update unit info panel
+        updateUnitsInfo();
+
+        // Hide production buttons when units are selected
+        updateProductionButtons(null);
+
+        // Deselect any buildings
+        deselectBuilding();
+
+        // Re-render to update visuals
+        if (mapRenderer) {
+            mapRenderer.render();
         }
     }
 }
