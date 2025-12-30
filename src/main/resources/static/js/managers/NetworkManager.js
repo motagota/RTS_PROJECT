@@ -226,6 +226,44 @@ class NetworkManager {
     }
 
     /**
+     * Command units to gather from a resource node
+     */
+    async gatherResource(unitIds, resourceX, resourceY) {
+        console.log('=== NetworkManager.gatherResource called ===');
+        console.log('Unit IDs:', unitIds);
+        console.log('Resource at:', resourceX, resourceY);
+        console.log('API URL:', `${this.apiBaseUrl}/${this.gameState.gameId}/units/gather`);
+
+        try {
+            const payload = { unitIds, resourceX, resourceY };
+            console.log('Sending payload:', JSON.stringify(payload));
+
+            const response = await fetch(
+                `${this.apiBaseUrl}/${this.gameState.gameId}/units/gather`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }
+            );
+
+            console.log('Response status:', response.status);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Server error response:', errorText);
+                throw new Error('Failed to command resource gathering');
+            }
+
+            const result = await response.json();
+            console.log('Gather command successful:', result);
+        } catch (error) {
+            console.error('Error commanding resource gathering:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Set rally point for a building
      */
     async setRallyPoint(buildingId, rallyX, rallyY) {

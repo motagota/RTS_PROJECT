@@ -76,6 +76,27 @@ public class Unit {
 
     private double movementSpeed = 0.1;  // Tiles per game tick (10 ticks/sec = 1 tile/sec)
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient double movementProgress = 0.0;  // Accumulated movement progress towards next tile
+
+    // Resource gathering fields
+    private Long targetResourceNodeId;  // Resource node being gathered from
+    private String carryingResourceType;  // Type of resource being carried (GOLD, STONE, BERRIES, TREE)
+    private int carryingAmount = 0;  // Amount of resource being carried
+    private int carryCapacity = 10;  // Maximum amount that can be carried
+    private GatherState gatherState = GatherState.IDLE;  // Current gathering state
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient int gatherTickCounter = 0;  // Counts ticks for gathering timing
+
+    public enum GatherState {
+        IDLE,              // Not gathering
+        MOVING_TO_RESOURCE, // Moving to resource node
+        GATHERING,         // At resource node, gathering
+        MOVING_TO_DROPOFF, // Carrying resources, moving to drop-off
+        DEPOSITING         // At drop-off, depositing resources
+    }
+
     // No-arg constructor for Jackson deserialization
     public Unit() {
         this.id = nextId++;
@@ -202,5 +223,69 @@ public class Unit {
 
     public boolean isMoving() {
         return targetX != null && targetY != null && (x != targetX || y != targetY);
+    }
+
+    public Long getTargetResourceNodeId() {
+        return targetResourceNodeId;
+    }
+
+    public void setTargetResourceNodeId(Long targetResourceNodeId) {
+        this.targetResourceNodeId = targetResourceNodeId;
+    }
+
+    public String getCarryingResourceType() {
+        return carryingResourceType;
+    }
+
+    public void setCarryingResourceType(String carryingResourceType) {
+        this.carryingResourceType = carryingResourceType;
+    }
+
+    public int getCarryingAmount() {
+        return carryingAmount;
+    }
+
+    public void setCarryingAmount(int carryingAmount) {
+        this.carryingAmount = carryingAmount;
+    }
+
+    public int getCarryCapacity() {
+        return carryCapacity;
+    }
+
+    public void setCarryCapacity(int carryCapacity) {
+        this.carryCapacity = carryCapacity;
+    }
+
+    public GatherState getGatherState() {
+        return gatherState;
+    }
+
+    public void setGatherState(GatherState gatherState) {
+        this.gatherState = gatherState;
+    }
+
+    public boolean isGathering() {
+        return gatherState != GatherState.IDLE;
+    }
+
+    public boolean isCarryingResources() {
+        return carryingAmount > 0;
+    }
+
+    public double getMovementProgress() {
+        return movementProgress;
+    }
+
+    public void setMovementProgress(double movementProgress) {
+        this.movementProgress = movementProgress;
+    }
+
+    public int getGatherTickCounter() {
+        return gatherTickCounter;
+    }
+
+    public void setGatherTickCounter(int gatherTickCounter) {
+        this.gatherTickCounter = gatherTickCounter;
     }
 }

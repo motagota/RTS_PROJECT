@@ -4,9 +4,11 @@ import com.rts.dto.*;
 import com.rts.model.Game;
 import com.rts.model.GamePlayer;
 import com.rts.model.ProductionQueueItem;
+import com.rts.model.ResourceNode;
 import com.rts.service.GameService;
 import com.rts.service.GameServiceExtensions;
 import com.rts.service.HeartbeatOutcome;
+import com.rts.service.ResourceNodeService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -32,14 +34,17 @@ public class GameController {
     private final GameService gameService;
     private final GameServiceExtensions gameServiceExt;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ResourceNodeService resourceNodeService;
 
     @Autowired
     public GameController(GameService gameService,
                           GameServiceExtensions gameServiceExt,
-                          SimpMessagingTemplate messagingTemplate) {
+                          SimpMessagingTemplate messagingTemplate,
+                          ResourceNodeService resourceNodeService) {
         this.gameService = gameService;
         this.gameServiceExt = gameServiceExt;
         this.messagingTemplate = messagingTemplate;
+        this.resourceNodeService = resourceNodeService;
     }
 
     /**
@@ -199,11 +204,53 @@ public class GameController {
     }
 
     /**
+     * Command units to gather from a resource node
+     */
+    @PostMapping("/{gameId}/units/gather")
+    public ResponseEntity<Map<String, String>> gatherResource(
+            @PathVariable Long gameId,
+            @Valid @RequestBody GatherResourceRequest request) {
+        System.out.println("=== GATHER ENDPOINT CALLED ===");
+        System.out.println("Game ID: " + gameId);
+        System.out.println("Unit IDs: " + request.getUnitIds());
+        System.out.println("Resource at: (" + request.getResourceX() + "," + request.getResourceY() + ")");
+        gameServiceExt.gatherResource(gameId, request.getUnitIds(), request.getResourceX(), request.getResourceY());
+        return ResponseEntity.ok(Map.of("status", "units gathering queued"));
+    }
+
+    /**
      * Stop a game
      */
     @PostMapping("/{id}/stop")
     public ResponseEntity<Map<String, String>> stopGame(@PathVariable Long id) {
         gameService.stopGame(id);
         return ResponseEntity.ok(Map.of("status", "game stopped"));
+    }
+
+    /**
+     * Get all resource nodes for a game
+     */
+    @GetMapping("/{gameId}/resources")
+    public ResponseEntity<List<ResourceNodeDTO>> getResourceNodes(@PathVariable Long gameId) {
+        System.out.println("GET /api/games/" + gameId + "/resources called");
+        List<ResourceNode> nodes = resourceNodeService.getResourceNodes(gameId);
+        System.out.println("Found " + nodes.size() + " resource nodes for game " + gameId);
+        List<ResourceNodeDTO> dtos = nodes.stream()
+                .map(ResourceNodeDTO::new)
+                .toList();
+        return ResponseEntity.ok(dtos);
+    }
+
+    /**
+     * Get resource node at specific coordinates
+     */
+    @GetMapping("/{gameId}/resources/{x}/{y}")
+    public ResponseEntity<ResourceNodeDTO> getResourceNodeAt(
+            @PathVariable Long gameId,
+            @PathVariable int x,
+            @PathVariable int y) {
+        return resourceNodeService.getResourceNodeAt(gameId, x, y)
+                .map(node -> ResponseEntity.ok(new ResourceNodeDTO(node)))
+                .orElse(ResponseEntity.notFound().build());
     }
 }

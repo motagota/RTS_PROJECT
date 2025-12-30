@@ -22,25 +22,31 @@ public class ResourceNodeService {
     @Autowired
     private ResourceNodeRepository resourceNodeRepository;
 
-    @Autowired
-    private MapService mapService;
-
     /**
      * Initialize resource nodes from the generated map
      * Scans the map for objects and creates ResourceNode entities
+     * @param game The game instance
+     * @param terrainJson The already-decompressed terrain JSON data
      */
     @Transactional
-    public void initializeResourceNodesFromMap(Game game, GeneratedMap generatedMap) {
+    public void initializeResourceNodesFromMap(Game game, String terrainJson) {
         try {
             // Clear any existing resource nodes
             resourceNodeRepository.deleteByGameId(game.getId());
 
-            // Parse terrain data
             ObjectMapper objectMapper = new ObjectMapper();
-            String terrainJson = generatedMap.getTerrainData();
 
-            // Parse as MapCell array
-            MapCell[] cells = objectMapper.readValue(terrainJson, MapCell[].class);
+            // Parse as JSON object with "cells" array
+            com.fasterxml.jackson.databind.JsonNode mapNode = objectMapper.readTree(terrainJson);
+            com.fasterxml.jackson.databind.JsonNode cellsNode = mapNode.get("cells");
+
+            if (cellsNode == null || !cellsNode.isArray()) {
+                System.out.println("No cells array found in terrain data");
+                return;
+            }
+
+            // Parse cells array
+            MapCell[] cells = objectMapper.treeToValue(cellsNode, MapCell[].class);
 
             // Create resource nodes for each cell with an object
             for (MapCell cell : cells) {
@@ -80,6 +86,13 @@ public class ResourceNodeService {
      */
     public Optional<ResourceNode> getResourceNodeAt(Long gameId, int x, int y) {
         return resourceNodeRepository.findByGameIdAndXAndY(gameId, x, y);
+    }
+
+    /**
+     * Get resource node by ID
+     */
+    public Optional<ResourceNode> getResourceNodeById(Long nodeId) {
+        return resourceNodeRepository.findById(nodeId);
     }
 
     /**

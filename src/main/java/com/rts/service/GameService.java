@@ -42,6 +42,9 @@ public class GameService {
     @Autowired
     private MovementService movementService;
 
+    @Autowired
+    private ResourceNodeService resourceNodeService;
+
     // Thread pool for managing game instances
     private final ExecutorService gameExecutor = Executors.newCachedThreadPool();
 
@@ -82,6 +85,16 @@ public class GameService {
 
             mapService.generateMapFromRMS(mapTemplateName, playerCount, savedGame.getId(), mapSize);
             System.out.println("Generated RMS map for game " + savedGame.getId() + " using template: " + mapTemplateName + " with " + playerCount + " players");
+
+            // Initialize resource nodes from the generated map
+            Optional<GeneratedMap> generatedMapOpt = mapService.getGeneratedMapByGameId(savedGame.getId());
+            if (generatedMapOpt.isPresent()) {
+                GeneratedMap generatedMap = generatedMapOpt.get();
+                // Decompress terrain data and pass to resource node service
+                String terrainJson = mapService.decompressAndDeserializeMapGrid(generatedMap.getTerrainData());
+                resourceNodeService.initializeResourceNodesFromMap(savedGame, terrainJson);
+                System.out.println("Initialized resource nodes for game " + savedGame.getId());
+            }
         } catch (Exception e) {
             System.err.println("Failed to generate map for game " + savedGame.getId() + ": " + e.getMessage());
             e.printStackTrace();

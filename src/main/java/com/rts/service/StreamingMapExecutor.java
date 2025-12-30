@@ -848,7 +848,7 @@ public class StreamingMapExecutor {
         int buildingY = centerY - 1;
 
         grid.addBuilding(new com.rts.model.Building(buildingX, buildingY,
-                com.rts.model.Building.BuildingType.HEADQUARTERS, playerNumber));
+                com.rts.model.Building.BuildingType.TOWN_CENTER, playerNumber));
 
         log.debug("Placed headquarters for player {} at ({},{}) covering 2x2 area", playerNumber, buildingX, buildingY);
     }

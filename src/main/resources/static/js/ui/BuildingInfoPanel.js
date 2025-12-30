@@ -20,6 +20,17 @@ class BuildingInfoPanel {
     }
 
     update(building) {
+        // Ensure the building info content is visible
+        if (this.panelElement) {
+            this.panelElement.style.display = 'block';
+        }
+
+        // Hide resource node info panel if visible
+        const resourceNodePanel = document.querySelector('.resource-node-info');
+        if (resourceNodePanel) {
+            resourceNodePanel.style.display = 'none';
+        }
+
         const currentPlayer = this.gameState.getCurrentPlayer();
         const isOwned = currentPlayer && building.playerNumber === currentPlayer.playerSlot;
         const buildingName = this.getBuildingName(building.type);
@@ -54,7 +65,7 @@ class BuildingInfoPanel {
 
     getBuildingName(type) {
         const names = {
-            'HEADQUARTERS': 'Town Center',
+            'TOWN_CENTER': 'Town Center',
             'BARRACKS': 'Barracks',
             'ARCHERY_RANGE': 'Archery Range'
         };

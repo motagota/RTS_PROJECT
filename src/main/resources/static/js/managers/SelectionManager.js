@@ -161,6 +161,13 @@ class SelectionManager {
     selectBuilding(building) {
         this.gameState.setSelectedBuilding(building);
         this.gameState.setSelectedUnits([]);
+
+        // Update map renderer
+        const mapRenderer = this.gameState.getMapRenderer();
+        if (mapRenderer) {
+            mapRenderer.setSelectedBuilding(building);
+        }
+
         this.eventBus.emit('render:requested');
     }
 
@@ -193,9 +200,9 @@ class SelectionManager {
 
         // Check if any building occupies this tile
         for (const building of buildings) {
-            // Get building dimensions (default to 3x3 for headquarters, 1x1 for others)
-            const width = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
-            const height = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            // Get building dimensions (default to 2x2 for town center, 1x1 for others)
+            const width = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
+            const height = building.height || (building.type === 'TOWN_CENTER' ? 2 : 1);
 
             // Check if click is within the building's area
             if (tileX >= building.x && tileX < building.x + width &&
@@ -231,7 +238,7 @@ class SelectionManager {
 
         // Find player's town center
         const townCenter = buildings.find(b =>
-            b.type === 'HEADQUARTERS' && b.playerNumber === currentPlayer.playerSlot
+            b.type === 'TOWN_CENTER' && b.playerNumber === currentPlayer.playerSlot
         );
 
         if (townCenter) {

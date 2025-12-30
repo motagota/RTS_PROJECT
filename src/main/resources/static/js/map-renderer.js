@@ -301,9 +301,9 @@ class MapRenderer {
             const x = offsetX + building.x * this.tileSize;
             const y = offsetY + building.y * this.tileSize;
 
-            // Default to 3x3 for headquarters, 1x1 for others if width/height not specified
-            const buildingWidth = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
-            const buildingHeight = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            // Default to 2x2 for town center, 1x1 for others if width/height not specified
+            const buildingWidth = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
+            const buildingHeight = building.height || (building.type === 'TOWN_CENTER' ? 2 : 1);
             const width = buildingWidth * this.tileSize;
             const height = buildingHeight * this.tileSize;
 
@@ -319,7 +319,7 @@ class MapRenderer {
             this.terrainCtx.strokeRect(x, y, width, height);
 
             // Draw building type symbol
-            const symbol = building.type === 'HEADQUARTERS' ? 'HQ' : building.type.charAt(0);
+            const symbol = building.type === 'TOWN_CENTER' ? 'TC' : building.type.charAt(0);
             this.terrainCtx.fillStyle = '#fff';
             this.terrainCtx.font = `bold ${this.tileSize}px Arial`;
             this.terrainCtx.textAlign = 'center';
@@ -353,8 +353,8 @@ class MapRenderer {
             const y = offsetY + building.y * this.tileSize;
 
             // Use same default logic as cache rendering
-            const buildingWidth = building.width || (building.type === 'HEADQUARTERS' ? 3 : 1);
-            const buildingHeight = building.height || (building.type === 'HEADQUARTERS' ? 3 : 1);
+            const buildingWidth = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
+            const buildingHeight = building.height || (building.type === 'TOWN_CENTER' ? 2 : 1);
 
             // Check if building is selected or hovered
             const isHovered = this.hoveredBuilding &&
@@ -488,16 +488,16 @@ class MapRenderer {
             this.ctx.lineWidth = 2;
             this.ctx.strokeRect(x, y, totalWidth, totalHeight);
 
-            // Draw building type symbol (H for headquarters) - centered on the building
-            if (building.type === 'HEADQUARTERS') {
+            // Draw building type symbol (TC for town center) - centered on the building
+            if (building.type === 'TOWN_CENTER') {
                 const centerX = x + totalWidth / 2;
                 const centerY = y + totalHeight / 2;
 
                 this.ctx.fillStyle = '#fff';
-                this.ctx.font = `bold ${Math.min(totalWidth, totalHeight) - 2}px Arial`;
+                this.ctx.font = `bold ${Math.min(totalWidth, totalHeight) / 2}px Arial`;
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
-                this.ctx.fillText('H', centerX, centerY);
+                this.ctx.fillText('TC', centerX, centerY);
             }
 
             // Draw production indicator in top-left corner if building has queue
@@ -654,6 +654,30 @@ class MapRenderer {
                 this.ctx.arc(centerX, centerY, unitSize / 2 + 3, 0, Math.PI * 2);
                 this.ctx.stroke();
                 this.ctx.globalAlpha = 1.0;
+            }
+
+            // Draw resource carrying indicator
+            if (unit.carryingAmount && unit.carryingAmount > 0) {
+                const resourceColors = {
+                    'GOLD': '#FFD700',
+                    'STONE': '#808080',
+                    'BERRIES': '#FF1493',
+                    'TREE': '#8B4513'
+                };
+
+                const resourceColor = resourceColors[unit.carryingResourceType] || '#FFFFFF';
+                const indicatorSize = unitSize * 0.2;
+                const indicatorX = centerX + unitSize / 2 - indicatorSize;
+                const indicatorY = centerY - unitSize / 2;
+
+                // Draw small circle indicator
+                this.ctx.fillStyle = resourceColor;
+                this.ctx.beginPath();
+                this.ctx.arc(indicatorX, indicatorY, indicatorSize, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#000';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
             }
         });
     }
@@ -1033,6 +1057,17 @@ class MapRenderer {
             return;
         }
 
+        // Debug: Log received unit data
+        const firstUnit = units.find(u => u.targetX != null && u.targetY != null);
+        if (firstUnit) {
+            console.log('=== Received unit update ===');
+            console.log('Unit ID:', firstUnit.id);
+            console.log('Position:', firstUnit.x, firstUnit.y);
+            console.log('Target:', firstUnit.targetX, firstUnit.targetY);
+            console.log('GatherState:', firstUnit.gatherState);
+            console.log('Carrying:', firstUnit.carryingAmount, '/', firstUnit.carryCapacity, firstUnit.carryingResourceType);
+        }
+
         // Update selected units to maintain selection through position changes
         // Simply match by ID - much simpler!
         if (this.selectedUnits.length > 0) {
@@ -1199,11 +1234,13 @@ class MapRenderer {
      * Add a click indicator at the specified position
      * @param {number} x - Tile X coordinate
      * @param {number} y - Tile Y coordinate
+     * @param {string} type - Type of indicator ('move' or 'gather')
      */
-    addClickIndicator(x, y) {
+    addClickIndicator(x, y, type = 'move') {
         this.clickIndicators.push({
             x: x,
             y: y,
+            type: type,
             startTime: Date.now(),
             duration: 600 // milliseconds
         });
@@ -1239,32 +1276,53 @@ class MapRenderer {
             this.ctx.save();
             this.ctx.globalAlpha = opacity;
 
-            // Draw outer circle (green)
-            this.ctx.strokeStyle = '#00ff00';
+            // Choose colors based on indicator type
+            const isGather = indicator.type === 'gather';
+            const outerColor = isGather ? '#FFD700' : '#00ff00';  // Gold for gather, green for move
+            const innerColor = isGather ? '#FFA500' : '#ffffff';  // Orange for gather, white for move
+
+            // Draw outer circle
+            this.ctx.strokeStyle = outerColor;
             this.ctx.lineWidth = 2;
             this.ctx.beginPath();
             this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
             this.ctx.stroke();
 
-            // Draw inner circle (white)
-            this.ctx.strokeStyle = '#ffffff';
+            // Draw inner circle
+            this.ctx.strokeStyle = innerColor;
             this.ctx.lineWidth = 1;
             this.ctx.beginPath();
             this.ctx.arc(centerX, centerY, radius * 0.5, 0, Math.PI * 2);
             this.ctx.stroke();
 
-            // Draw crosshair
-            const crosshairSize = this.tileSize * 0.3;
-            this.ctx.strokeStyle = '#00ff00';
-            this.ctx.lineWidth = 2;
-            this.ctx.beginPath();
-            // Horizontal line
-            this.ctx.moveTo(centerX - crosshairSize, centerY);
-            this.ctx.lineTo(centerX + crosshairSize, centerY);
-            // Vertical line
-            this.ctx.moveTo(centerX, centerY - crosshairSize);
-            this.ctx.lineTo(centerX, centerY + crosshairSize);
-            this.ctx.stroke();
+            // Draw different symbol based on type
+            if (isGather) {
+                // Draw pickaxe/gather symbol for resource gathering
+                const symbolSize = this.tileSize * 0.25;
+                this.ctx.strokeStyle = outerColor;
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                // Pickaxe handle
+                this.ctx.moveTo(centerX - symbolSize * 0.5, centerY + symbolSize * 0.5);
+                this.ctx.lineTo(centerX + symbolSize * 0.3, centerY - symbolSize * 0.3);
+                // Pickaxe head
+                this.ctx.moveTo(centerX + symbolSize * 0.1, centerY - symbolSize * 0.5);
+                this.ctx.lineTo(centerX + symbolSize * 0.5, centerY - symbolSize * 0.1);
+                this.ctx.stroke();
+            } else {
+                // Draw crosshair for movement
+                const crosshairSize = this.tileSize * 0.3;
+                this.ctx.strokeStyle = outerColor;
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                // Horizontal line
+                this.ctx.moveTo(centerX - crosshairSize, centerY);
+                this.ctx.lineTo(centerX + crosshairSize, centerY);
+                // Vertical line
+                this.ctx.moveTo(centerX, centerY - crosshairSize);
+                this.ctx.lineTo(centerX, centerY + crosshairSize);
+                this.ctx.stroke();
+            }
 
             this.ctx.restore();
         });

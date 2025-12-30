@@ -60,6 +60,9 @@ public class MapService {
     private PathfindingService pathfindingService;
 
     @Autowired
+    private ResourceGatheringService resourceGatheringService;
+
+    @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -351,7 +354,7 @@ public class MapService {
         for (int playerNum = 1; playerNum <= playerCount; playerNum++) {
             final int currentPlayer = playerNum;
             Building headquarters = buildings.stream()
-                    .filter(b -> b.getType() == Building.BuildingType.HEADQUARTERS
+                    .filter(b -> b.getType() == Building.BuildingType.TOWN_CENTER
                               && b.getPlayerNumber() == currentPlayer)
                     .findFirst()
                     .orElse(null);
@@ -673,6 +676,94 @@ public class MapService {
     }
 
     /**
+     * Command units to gather from a resource node
+     */
+    public void commandGatherResource(Long gameId, List<Integer> unitIds, int resourceX, int resourceY) {
+        System.out.println("MapService.commandGatherResource called");
+        System.out.println("  Game ID: " + gameId);
+        System.out.println("  Unit IDs: " + unitIds);
+        System.out.println("  Resource at: (" + resourceX + "," + resourceY + ")");
+
+        try {
+            Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                System.err.println("Map not found for game " + gameId);
+                return;
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+
+            // Get units
+            String unitsJson = generatedMap.getUnits();
+            if (unitsJson == null || unitsJson.isEmpty()) {
+                System.err.println("No units found on map");
+                return;
+            }
+
+            List<Unit> units = objectMapper.readValue(
+                    unitsJson,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, Unit.class)
+            );
+
+            // Get buildings
+            String buildingsJson = generatedMap.getBuildings();
+            List<Building> buildings = new ArrayList<>();
+            if (buildingsJson != null && !buildingsJson.isEmpty()) {
+                buildings = objectMapper.readValue(
+                        buildingsJson,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, Building.class)
+                );
+            }
+
+            // Get terrain data
+            byte[] terrainData = generatedMap.getTerrainData();
+
+            // Find units by IDs
+            List<Unit> targetUnits = new ArrayList<>();
+            for (Integer unitId : unitIds) {
+                for (Unit unit : units) {
+                    if (unit.getId() == unitId) {
+                        targetUnits.add(unit);
+                        break;
+                    }
+                }
+            }
+
+            if (targetUnits.isEmpty()) {
+                System.err.println("No units found with the given IDs");
+                return;
+            }
+
+            // Command gathering using resource gathering service
+            resourceGatheringService.commandGatherResource(
+                    targetUnits,
+                    gameId,
+                    resourceX,
+                    resourceY,
+                    terrainData,
+                    buildings,
+                    units,
+                    generatedMap.getWidth(),
+                    generatedMap.getHeight()
+            );
+
+            // Save updated units
+            unitsJson = objectMapper.writeValueAsString(units);
+            generatedMap.setUnits(unitsJson);
+            saveGeneratedMap(generatedMap);
+
+            // Broadcast the updated units
+            broadcastUnitUpdate(gameId, units);
+
+            System.out.println("Commanded " + targetUnits.size() + " units to gather from resource at (" + resourceX + "," + resourceY + ")");
+
+        } catch (Exception e) {
+            System.err.println("Error commanding resource gathering: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * Set a unit's destination for pathfinding by coordinates (deprecated, use setUnitDestinationById)
      */
     public void setUnitDestination(Long gameId, int unitX, int unitY, int targetX, int targetY) {
@@ -770,17 +861,20 @@ public class MapService {
                     objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, com.rts.model.Unit.class)
             );
 
-                       // Check if any units are moving
+            // Check if any units are moving or gathering
             boolean anyMoving = false;
+            boolean anyGathering = false;
             for (com.rts.model.Unit unit : units) {
-                   if (unit.isMoving()) {
+                if (unit.isMoving()) {
                     anyMoving = true;
-                   
+                }
+                if (unit.isGathering()) {
+                    anyGathering = true;
                 }
             }
 
-            // Skip if no units are moving
-            if (!anyMoving) {
+            // Skip if no units are moving or gathering
+            if (!anyMoving && !anyGathering) {
                 return;
             }
 
@@ -803,6 +897,13 @@ public class MapService {
                     generatedMap.getWidth(), generatedMap.getHeight()
             );
 
+            // Process resource gathering
+            resourceGatheringService.processGathering(
+                    units, generatedMap.getGameId(), buildings,
+                    terrainData, units,
+                    generatedMap.getWidth(), generatedMap.getHeight()
+            );
+
             // Save updated units
             String updatedUnitsJson = objectMapper.writeValueAsString(units);
             generatedMap.setUnits(updatedUnitsJson);
@@ -822,10 +923,13 @@ public class MapService {
      */
     private void broadcastUnitUpdate(Long gameId, java.util.List<com.rts.model.Unit> units) {
         try {
-      
-            // Log first unit with target
+            // Debug: Log unit state before broadcasting
             for (com.rts.model.Unit u : units) {
                 if (u.getTargetX() != null && u.getTargetY() != null) {
+                    System.out.println("Broadcasting unit " + u.getId() + ": pos=(" + u.getX() + "," + u.getY() +
+                        "), target=(" + u.getTargetX() + "," + u.getTargetY() +
+                        "), gatherState=" + u.getGatherState() +
+                        ", carrying=" + u.getCarryingAmount() + "/" + u.getCarryCapacity() + " " + u.getCarryingResourceType());
                     break;
                 }
             }
@@ -837,7 +941,7 @@ public class MapService {
 
             // Send to all players in this game
             messagingTemplate.convertAndSend("/topic/game/" + gameId, update);
-        
+
         } catch (Exception e) {
             System.err.println("Error broadcasting unit update: " + e.getMessage());
             e.printStackTrace();

@@ -51,7 +51,7 @@ public class PlaceHeadquartersCommand implements RMSCommand {
         int buildingX = centerX - 1;
         int buildingY = centerY - 1;
 
-        context.addBuilding(new Building(buildingX, buildingY, Building.BuildingType.HEADQUARTERS, playerNumber));
+        context.addBuilding(new Building(buildingX, buildingY, Building.BuildingType.TOWN_CENTER, playerNumber));
 
         System.out.println("Placed headquarters for player " + playerNumber + " at (" + buildingX + "," + buildingY + ") covering 2x2 area");
     }

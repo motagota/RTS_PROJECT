@@ -30,6 +30,10 @@ class GameController {
         this.unitInfoPanel = new UnitInfoPanel(this.gameState, this.eventBus);
         this.buildingInfoPanel = new BuildingInfoPanel(this.gameState, this.eventBus);
         this.productionPanel = new ProductionPanel(this.gameState, this.eventBus, this.networkManager);
+        this.resourceNodeInfoPanel = new ResourceNodeInfoPanel(this.gameState, this.eventBus);
+
+        // Resource nodes cache
+        this.resourceNodesMap = new Map(); // Map of "x,y" -> ResourceNode
 
         // Setup event handlers
         this.setupEventHandlers();
@@ -91,6 +95,9 @@ class GameController {
             // Load map data
             await mapRenderer.loadMap(this.gameState.gameId);
 
+            // Load resource nodes
+            await this.loadResourceNodes();
+
             // Create input handler now that canvas is ready
             this.inputHandler = new InputHandler(this.gameState, this.eventBus, canvas);
 
@@ -130,6 +137,32 @@ class GameController {
     async loadProductionQueue() {
         const queue = await this.networkManager.loadProductionQueue();
         this.eventBus.emit('productionQueue:updated', queue);
+    }
+
+    /**
+     * Load resource nodes from server
+     */
+    async loadResourceNodes() {
+        try {
+            const response = await fetch(`http://localhost:8080/api/games/${this.gameState.gameId}/resources`);
+            if (!response.ok) {
+                console.warn('Failed to load resource nodes:', response.status);
+                return;
+            }
+
+            const resourceNodes = await response.json();
+
+            // Build map of resource nodes by coordinates
+            this.resourceNodesMap.clear();
+            resourceNodes.forEach(node => {
+                const key = `${node.x},${node.y}`;
+                this.resourceNodesMap.set(key, node);
+            });
+
+            console.log(`✓ Loaded ${resourceNodes.length} resource nodes`);
+        } catch (error) {
+            console.error('Error loading resource nodes:', error);
+        }
     }
 
     /**
@@ -206,16 +239,54 @@ class GameController {
             return;
         }
 
-        // Show click indicator
-        const mapRenderer = this.gameState.getMapRenderer();
-        mapRenderer.addClickIndicator(tileX, tileY);
-
-        // Move units
         const unitIds = ownedUnits.map(u => u.id);
-        try {
-            await this.networkManager.moveUnits(unitIds, tileX, tileY);
-        } catch (error) {
-            console.error('Failed to move units:', error);
+
+        // Check if there's a resource node at this location
+        const resourceNode = this.getResourceNodeAt(tileX, tileY);
+        const mapRenderer = this.gameState.getMapRenderer();
+
+        console.log('=== Right-click at (' + tileX + ',' + tileY + ') ===');
+        console.log('Resource node found:', resourceNode);
+        console.log('Resource nodes map size:', this.resourceNodesMap.size);
+
+        // Debug: show all resource nodes near the click
+        const nearby = [];
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const checkX = tileX + dx;
+                const checkY = tileY + dy;
+                const node = this.getResourceNodeAt(checkX, checkY);
+                if (node) {
+                    nearby.push(`(${checkX},${checkY}): ${node.type}`);
+                }
+            }
+        }
+        if (nearby.length > 0) {
+            console.log('Nearby resources:', nearby.join(', '));
+        }
+
+        if (resourceNode && !resourceNode.depleted) {
+            console.log('>>> GATHER COMMAND - Resource type:', resourceNode.type);
+            // Show gather click indicator (gold color)
+            mapRenderer.addClickIndicator(tileX, tileY, 'gather');
+
+            // Command units to gather from resource
+            try {
+                await this.networkManager.gatherResource(unitIds, tileX, tileY);
+            } catch (error) {
+                console.error('Failed to command resource gathering:', error);
+            }
+        } else {
+            console.log('>>> MOVE COMMAND - No resource at this location');
+            // Show move click indicator (green color)
+            mapRenderer.addClickIndicator(tileX, tileY, 'move');
+
+            // Move units
+            try {
+                await this.networkManager.moveUnits(unitIds, tileX, tileY);
+            } catch (error) {
+                console.error('Failed to move units:', error);
+            }
         }
     }
 
@@ -229,18 +300,35 @@ class GameController {
         if (tileX === null || tileY === null) {
             mapRenderer.setHoveredUnit(null);
             this.gameState.setHoveredBuilding(null);
+            this.eventBus.emit('resourceNode:hovered', null);
             this.render();
             return;
         }
 
         const unit = mapRenderer.getUnitAt(tileX, tileY);
         const building = this.selectionManager.findBuildingAtPosition(tileX, tileY);
+        const resourceNode = this.getResourceNodeAt(tileX, tileY);
+
+        // Emit resource node hover event if hovering over a resource
+        if (resourceNode) {
+            this.eventBus.emit('resourceNode:hovered', resourceNode);
+        } else {
+            this.eventBus.emit('resourceNode:hovered', null);
+        }
 
         if (unit !== mapRenderer.hoveredUnit || building !== this.gameState.getHoveredBuilding()) {
             mapRenderer.setHoveredUnit(unit);
             this.gameState.setHoveredBuilding(building);
             this.render();
         }
+    }
+
+    /**
+     * Get resource node at coordinates
+     */
+    getResourceNodeAt(x, y) {
+        const key = `${x},${y}`;
+        return this.resourceNodesMap.get(key);
     }
 
     /**
@@ -343,6 +431,14 @@ class GameController {
         const mapRenderer = this.gameState.getMapRenderer();
         if (mapRenderer) {
             mapRenderer.updateUnits(units);
+
+            // Update GameState's selected units with fresh data from map renderer
+            // This ensures the UI panels show current unit state (gather status, carrying resources, etc.)
+            const selectedUnits = mapRenderer.getSelectedUnits();
+            if (selectedUnits && selectedUnits.length > 0) {
+                this.gameState.setSelectedUnits(selectedUnits);
+                this.unitInfoPanel.update();
+            }
         }
     }
 

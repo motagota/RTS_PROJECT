@@ -75,28 +75,31 @@
         </div>
 
         <div class="game-footer">
-            <!-- Left section: Building info or selection info -->
+            <!-- Left section: Building info, unit info, or resource node info -->
             <div class="building-info-panel">
                 <div id="buildingInfoContent" class="building-info-content">
                     <p class="info-placeholder">Select a building or unit to see details</p>
+                </div>
+                <div class="resource-node-info" style="display: none;">
+                    <!-- Resource node info displayed here on hover -->
                 </div>
             </div>
 
             <!-- Center section: Production/Action buttons (3x4 grid) -->
             <div class="production-panel">
                 <div class="production-grid">
-                    <button class="production-btn" data-action="1" title="Villager">V<span class="btn-hotkey">Q</span></button>
-                    <button class="production-btn" data-action="2"><span class="btn-hotkey">W</span></button>
-                    <button class="production-btn" data-action="3"><span class="btn-hotkey">E</span></button>
-                    <button class="production-btn" data-action="4"><span class="btn-hotkey">A</span></button>
-                    <button class="production-btn" data-action="5"><span class="btn-hotkey">S</span></button>
-                    <button class="production-btn" data-action="6"><span class="btn-hotkey">D</span></button>
-                    <button class="production-btn" data-action="7"><span class="btn-hotkey">Z</span></button>
-                    <button class="production-btn" data-action="8"><span class="btn-hotkey">X</span></button>
-                    <button class="production-btn" data-action="9"><span class="btn-hotkey">C</span></button>
-                    <button class="production-btn" data-action="10"><span class="btn-hotkey">R</span></button>
-                    <button class="production-btn" data-action="11"><span class="btn-hotkey">F</span></button>
-                    <button class="production-btn rally-point-btn" data-action="12" title="Set Rally Point">📍<span class="btn-hotkey">V</span></button>
+                    <button class="production-btn" data-action="VILLAGER" data-building="TOWN_CENTER" title="Train Villager (Q)">V<span class="btn-hotkey">Q</span></button>
+                    <button class="production-btn" data-action="2" data-building="TOWN_CENTER"><span class="btn-hotkey">W</span></button>
+                    <button class="production-btn" data-action="3" data-building="TOWN_CENTER"><span class="btn-hotkey">E</span></button>
+                    <button class="production-btn" data-action="4" data-building="TOWN_CENTER"><span class="btn-hotkey">A</span></button>
+                    <button class="production-btn" data-action="5" data-building="TOWN_CENTER"><span class="btn-hotkey">S</span></button>
+                    <button class="production-btn" data-action="6" data-building="TOWN_CENTER"><span class="btn-hotkey">D</span></button>
+                    <button class="production-btn" data-action="7" data-building="TOWN_CENTER"><span class="btn-hotkey">Z</span></button>
+                    <button class="production-btn" data-action="8" data-building="TOWN_CENTER"><span class="btn-hotkey">X</span></button>
+                    <button class="production-btn" data-action="9" data-building="TOWN_CENTER"><span class="btn-hotkey">C</span></button>
+                    <button class="production-btn" data-action="10" data-building="TOWN_CENTER"><span class="btn-hotkey">R</span></button>
+                    <button class="production-btn" data-action="11" data-building="TOWN_CENTER"><span class="btn-hotkey">F</span></button>
+                    <button class="production-btn rally-point-btn" data-action="rally" data-building="TOWN_CENTER" title="Set Rally Point (V)">📍<span class="btn-hotkey">V</span></button>
                 </div>
             </div>
 
@@ -128,6 +131,7 @@
     <script src="js/ui/UnitInfoPanel.js"></script>
     <script src="js/ui/BuildingInfoPanel.js"></script>
     <script src="js/ui/ProductionPanel.js"></script>
+    <script src="js/ui/ResourceNodeInfoPanel.js"></script>
 
     <!-- Game Controller -->
     <script src="js/GameController.js"></script>

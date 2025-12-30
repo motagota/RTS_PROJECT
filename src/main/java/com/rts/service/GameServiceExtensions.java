@@ -81,7 +81,7 @@ public class GameServiceExtensions {
 
             // Find player's headquarters
             Building headquarters = buildings.stream()
-                    .filter(b -> b.getType() == Building.BuildingType.HEADQUARTERS
+                    .filter(b -> b.getType() == Building.BuildingType.TOWN_CENTER
                             && b.getPlayerNumber() == player.getPlayerSlot())
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("Player headquarters not found"));
@@ -149,6 +149,20 @@ public class GameServiceExtensions {
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to move units: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Command units to gather from a resource node
+     */
+    public void gatherResource(Long gameId, List<Integer> unitIds, Integer resourceX, Integer resourceY) {
+        try {
+            System.out.println("GameServiceExtensions.gatherResource called for game " + gameId);
+            mapService.commandGatherResource(gameId, unitIds, resourceX, resourceY);
+        } catch (Exception e) {
+            System.err.println("Error in GameServiceExtensions.gatherResource: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Failed to command resource gathering: " + e.getMessage(), e);
         }
     }
 }

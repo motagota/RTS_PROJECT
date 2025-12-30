@@ -734,3 +734,45 @@ body {
 .game-btn:active {
     transform: translateY(0);
 }
+
+/* Resource Node Info Panel */
+.resource-node-info {
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 5px;
+    color: #fff;
+}
+
+.resource-node-info h3 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    color: #ffd700;
+}
+
+.resource-info {
+    font-size: 14px;
+}
+
+.resource-info > div {
+    margin: 5px 0;
+}
+
+.resource-bar-container {
+    width: 100%;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.resource-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #4caf50 0%, #8bc34a 100%);
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.resource-bar-container .resource-bar {
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+}
