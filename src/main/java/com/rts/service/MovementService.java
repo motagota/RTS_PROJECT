@@ -43,6 +43,10 @@ public class MovementService {
                 calculatePath(unit, terrainData, buildings, units, mapWidth, mapHeight);
                 unit.setBlockedTicks(0);  // Reset counter after recalculation
 
+                // Clear last position when recalculating to allow fresh movement attempts
+                unit.setLastX(null);
+                unit.setLastY(null);
+
                 // If still no path after recalculation, unit is truly stuck
                 if (unit.getPath() == null || unit.getPath().isEmpty()) {
                     unit.setTargetX(null);
@@ -106,6 +110,10 @@ public class MovementService {
         unit.setTargetX(finalTargetX);
         unit.setTargetY(finalTargetY);
 
+        // Clear last position history when setting new destination
+        unit.setLastX(null);
+        unit.setLastY(null);
+
         // Calculate path
         calculatePath(unit, terrainData, buildings, units, mapWidth, mapHeight);
     }
@@ -124,6 +132,9 @@ public class MovementService {
         );
 
         unit.setPath(path);
+
+        // Reset movement progress when calculating new path to prevent direction skipping
+        unit.setMovementProgress(0);
     }
 
     private void moveUnitAlongPath(Unit unit, List<Unit> allUnits, byte[] terrainData,
@@ -150,6 +161,10 @@ public class MovementService {
         if (distance <= movementSpeed) {
             // Check if the destination is occupied by another unit
             if (!isPositionOccupied(nextNode.getX(), nextNode.getY(), allUnits, unit)) {
+                // Store current position before moving
+                unit.setLastX(unit.getX());
+                unit.setLastY(unit.getY());
+
                 unit.setX(nextNode.getX());
                 unit.setY(nextNode.getY());
                 path.remove(0);  // Remove reached waypoint
@@ -160,6 +175,9 @@ public class MovementService {
                     unit.setTargetX(null);
                     unit.setTargetY(null);
                     unit.setPath(null);
+                    // Clear last position when reaching destination
+                    unit.setLastX(null);
+                    unit.setLastY(null);
                 }
             } else {
                 // Destination is occupied - try to move around the obstacle
@@ -191,6 +209,10 @@ public class MovementService {
 
                 // Check if the next position is occupied by another unit
                 if (!isPositionOccupied(nextX, nextY, allUnits, unit)) {
+                    // Store current position before moving
+                    unit.setLastX(unit.getX());
+                    unit.setLastY(unit.getY());
+
                     unit.setX(nextX);
                     unit.setY(nextY);
                     // Reset progress (keep fractional remainder)
@@ -216,7 +238,7 @@ public class MovementService {
 
     /**
      * Try to move around a blocking obstacle by checking adjacent tiles
-     * This provides basic local collision avoidance
+     * This provides basic local collision avoidance with oscillation prevention
      *
      * @param unit The unit trying to move
      * @param targetNode The blocked target position
@@ -265,6 +287,12 @@ public class MovementService {
                 continue;
             }
 
+            // ANTI-OSCILLATION: Don't move back to the position we just came from
+            if (unit.getLastX() != null && unit.getLastY() != null &&
+                newX == unit.getLastX() && newY == unit.getLastY()) {
+                continue;
+            }
+
             // Check if position is walkable (terrain, buildings, and units)
             if (isPositionBlocked(newX, newY, terrainData, buildings, allUnits, unit, mapWidth)) {
                 continue;
@@ -283,6 +311,10 @@ public class MovementService {
             // Only move if we don't go significantly farther from target
             // Allow slight detours (within 1.5x current distance)
             if (newDist <= currentDist * 1.5) {
+                // Store current position as last position before moving
+                unit.setLastX(unit.getX());
+                unit.setLastY(unit.getY());
+
                 unit.setX(newX);
                 unit.setY(newY);
                 return true;

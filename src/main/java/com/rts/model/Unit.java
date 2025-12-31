@@ -79,7 +79,13 @@ public class Unit {
     private transient double movementProgress = 0.0; 
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient int blockedTicks = 0;  
+    private transient int blockedTicks = 0;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient Integer lastX = null;
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient Integer lastY = null;
 
     // Resource gathering fields
     private Long targetResourceNodeId;  
@@ -317,5 +323,21 @@ public class Unit {
 
     public void setMovementDelayTicks(int movementDelayTicks) {
         this.movementDelayTicks = movementDelayTicks;
+    }
+
+    public Integer getLastX() {
+        return lastX;
+    }
+
+    public void setLastX(Integer lastX) {
+        this.lastX = lastX;
+    }
+
+    public Integer getLastY() {
+        return lastY;
+    }
+
+    public void setLastY(Integer lastY) {
+        this.lastY = lastY;
     }
 }

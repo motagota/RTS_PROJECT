@@ -70,7 +70,6 @@ public class MapService {
 
     @PostConstruct
     public void init() {
-        // Register RMS commands
         registerCommand(new BaseTerrainCommand());
         registerCommand(new PlayerStartsCommand());
         registerCommand(new ShouldGenerateHeadquartersCommand());
@@ -81,7 +80,6 @@ public class MapService {
         registerCommand(new PlaceTreesCommand());
         registerCommand(new PlayerWoodlinesCommand());
 
-        // Create default map templates if they don't exist
         createDefaultMapTemplates();
     }
 
@@ -89,10 +87,6 @@ public class MapService {
         rmsCommands.put(command.getCommandName(), command);
     }
 
-    /**
-     * Load map templates from RMS files in resources/maps directory
-     * Always reloads templates to ensure RMS script changes are picked up during development
-     */
     private void createDefaultMapTemplates() {
         try {
             PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
@@ -105,27 +99,21 @@ public class MapService {
 
                     if (filename == null) continue;
 
-                    // Extract map name from filename (e.g., "arabia.rms" -> "arabia")
                     String templateName = filename.replace(".rms", "");
 
-                    // Extract display name and description from RMS comments
                     String displayName = extractDisplayName(rmsScript, templateName);
                     String description = extractDescription(rmsScript);
 
-                    // Check if template already exists
                     Optional<MapTemplate> existingTemplate = mapTemplateRepository.findByName(templateName);
                     MapTemplate template;
 
                     if (existingTemplate.isPresent()) {
-                        // Update existing template
                         template = existingTemplate.get();
                     } else {
-                        // Create new template
                         template = new MapTemplate();
                         template.setName(templateName);
                     }
 
-                    // Update template fields
                     template.setDisplayName(displayName);
                     template.setDescription(description);
                     template.setMinPlayers(2);

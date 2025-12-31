@@ -1,19 +1,9 @@
-/**
- * GameController - Main controller that wires all modules together
- * Single Responsibility: Orchestrate the application
- * Dependency Inversion: Depends on abstractions (EventBus, managers, etc.)
- *
- * This is the only class that knows about all the other classes
- * Everything else communicates through events
- */
 class GameController {
     constructor(gameId, playerName) {
-        // Core
         this.eventBus = new EventBus();
         this.gameState = new GameState(this.eventBus);
         this.gameState.init(gameId, playerName);
 
-        // Network
         this.networkManager = new NetworkManager(
             this.gameState,
             this.eventBus,
@@ -21,11 +11,9 @@ class GameController {
             'http://localhost:8080/ws'
         );
 
-        // Managers
         this.selectionManager = new SelectionManager(this.gameState, this.eventBus);
-        this.inputHandler = null; // Created after canvas is ready
+        this.inputHandler = null;
 
-        // UI Components
         this.resourceDisplay = new ResourceDisplay(this.eventBus);
         this.villagerStatsPanel = new VillagerStatsPanel(this.eventBus);
         this.unitInfoPanel = new UnitInfoPanel(this.gameState, this.eventBus);
@@ -35,18 +23,12 @@ class GameController {
         this.resourceNodeInfoPanel = new ResourceNodeInfoPanel(this.gameState, this.eventBus);
         this.gatherSlotDebugPanel = new GatherSlotDebugPanel(this.gameState, this.eventBus);
 
-        // Resource nodes cache
-        this.resourceNodesMap = new Map(); // Map of "x,y" -> ResourceNode
+        this.resourceNodesMap = new Map();
 
-        // Setup event handlers
         this.setupEventHandlers();
     }
 
-    /**
-     * Setup all event handlers
-     */
     setupEventHandlers() {
-        // Network events
         this.eventBus.on('network:playersDisconnected', () => this.loadPlayers());
         this.eventBus.on('network:playersBooted', () => this.loadPlayers());
         this.eventBus.on('network:gameStatus', (data) => this.handleGameStatus(data.status));
@@ -58,66 +40,48 @@ class GameController {
             this.gameState.updatePlayerStatus(data.playerName, data.status);
         });
 
-        // Input events
         this.eventBus.on('input:click', (data) => this.handleClick(data));
         this.eventBus.on('input:doubleClick', (data) => this.handleDoubleClick(data));
         this.eventBus.on('input:rightClick', (data) => this.handleRightClick(data));
         this.eventBus.on('input:hover', (data) => this.handleHover(data));
         this.eventBus.on('input:dragEnd', (data) => this.handleDragEnd(data));
 
-        // Hotkey events
         this.eventBus.on('hotkey:selectTownCenter', () => this.selectionManager.selectTownCenter());
         this.eventBus.on('hotkey:toggleRallyPoint', () => this.toggleRallyPoint());
 
-        // Selection events
         this.eventBus.on('selection:unitsChanged', () => this.render());
         this.eventBus.on('selection:buildingChanged', () => this.render());
         this.eventBus.on('drag:updated', (data) => this.updateDragVisual(data));
         this.eventBus.on('drag:ended', () => this.clearDragVisual());
 
-        // Render events
         this.eventBus.on('render:requested', () => this.render());
     }
 
-    /**
-     * Initialize the game
-     */
     async init() {
         try {
-            // Load game data
             const game = await this.networkManager.loadGame();
             this.gameState.setCurrentGame(game);
 
-            // Load players
             await this.loadPlayers();
 
-            // Initialize map renderer
             const canvas = document.getElementById('gameCanvas');
             const mapRenderer = new MapRenderer(canvas);
             this.gameState.setMapRenderer(mapRenderer);
 
-            // Pass mapRenderer to debug panel
             this.gatherSlotDebugPanel.mapRenderer = mapRenderer;
 
-            // Load map data
             await mapRenderer.loadMap(this.gameState.gameId);
 
-            // Load resource nodes
             await this.loadResourceNodes();
 
-            // Create input handler now that canvas is ready
             this.inputHandler = new InputHandler(this.gameState, this.eventBus, canvas);
 
-            // Connect WebSocket
             await this.networkManager.connectWebSocket();
 
-            // Start heartbeat
             this.startHeartbeat();
 
-            // Start production queue polling
             this.startQueuePolling();
 
-            // Update player status
             await this.networkManager.updatePlayerStatus('READY');
 
             return true;
@@ -127,23 +91,16 @@ class GameController {
         }
     }
 
-    /**
-     * Load players from server
-     */
     async loadPlayers() {
         const players = await this.networkManager.loadPlayers();
         this.gameState.setPlayers(players);
 
-        // Update resources for current player
         const currentPlayer = this.gameState.getCurrentPlayer();
         if (currentPlayer && currentPlayer.resources) {
             this.eventBus.emit('network:resourcesUpdate', currentPlayer.resources);
         }
     }
 
-    /**
-     * Load production queue
-     */
     async loadProductionQueue() {
         const queue = await this.networkManager.loadProductionQueue();
         this.eventBus.emit('productionQueue:updated', queue);

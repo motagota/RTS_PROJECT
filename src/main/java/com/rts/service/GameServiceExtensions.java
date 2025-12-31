@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -140,16 +141,64 @@ public class GameServiceExtensions {
     }
 
     /**
-     * Move multiple units to a target location
+     * Move multiple units to a target location using formation positioning
      */
     public void moveUnits(Long gameId, List<Integer> unitIds, Integer targetX, Integer targetY) {
         try {
-            for (Integer unitId : unitIds) {
-                mapService.setUnitDestinationById(gameId, unitId, targetX, targetY);
+            if (unitIds.size() == 1) {
+                // Single unit - move directly to target
+                mapService.setUnitDestinationById(gameId, unitIds.get(0), targetX, targetY);
+            } else {
+                // Multiple units - distribute in formation around target
+                List<int[]> formationPositions = calculateFormationPositions(targetX, targetY, unitIds.size());
+
+                for (int i = 0; i < unitIds.size(); i++) {
+                    int[] position = formationPositions.get(i);
+                    mapService.setUnitDestinationById(gameId, unitIds.get(i), position[0], position[1]);
+                }
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to move units: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Calculate formation positions around a target point
+     * Creates a spiral pattern radiating out from the center
+     */
+    private List<int[]> calculateFormationPositions(int centerX, int centerY, int numUnits) {
+        List<int[]> positions = new ArrayList<>();
+
+        // First unit goes to center
+        positions.add(new int[]{centerX, centerY});
+
+        if (numUnits == 1) {
+            return positions;
+        }
+
+        // Spiral pattern: rings of units around center
+        int unitsPlaced = 1;
+        int radius = 1;
+
+        while (unitsPlaced < numUnits) {
+            // Calculate how many positions in this ring
+            // Ring radius 1: 8 positions, radius 2: 16 positions, etc.
+            int positionsInRing = radius * 8;
+
+            // Place units evenly around the ring
+            for (int i = 0; i < positionsInRing && unitsPlaced < numUnits; i++) {
+                double angle = (2 * Math.PI * i) / positionsInRing;
+                int offsetX = (int) Math.round(Math.cos(angle) * radius);
+                int offsetY = (int) Math.round(Math.sin(angle) * radius);
+
+                positions.add(new int[]{centerX + offsetX, centerY + offsetY});
+                unitsPlaced++;
+            }
+
+            radius++;
+        }
+
+        return positions;
     }
 
     /**

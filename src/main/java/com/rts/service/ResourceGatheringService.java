@@ -1,6 +1,7 @@
 package com.rts.service;
 
 import com.rts.model.Building;
+import com.rts.model.GatherSlot;
 import com.rts.model.ResourceNode;
 import com.rts.model.Unit;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,18 +31,14 @@ public class ResourceGatheringService {
     @Autowired
     private org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
-    private static final double GATHER_RANGE = 1.5;  // Units can gather from slots placed at radius 1.0
-    private static final double GATHER_RATE = 0.31;  // Resources gathered per second (AoE2 berry rate)
-    private static final int TICKS_PER_GATHER = 10;  // Gather once per second (at 10 ticks/sec)
-    private static final double DROPOFF_RANGE = 2.0;  // Units can drop off resources when adjacent to building
+    private static final double GATHER_RANGE = 1.5;
+    private static final double GATHER_RATE = 0.31;
+    private static final int TICKS_PER_GATHER = 10;
+    private static final double DROPOFF_RANGE = 2.0;
 
-    /**
-     * Command units to gather from a resource node
-     */
     public void commandGatherResource(List<Unit> units, Long gameId, int resourceX, int resourceY,
                                        byte[] terrainData, List<Building> buildings, List<Unit> allUnits,
                                        int mapWidth, int mapHeight) {
-        // Find resource node at coordinates
         Optional<ResourceNode> nodeOpt = resourceNodeService.getResourceNodeAt(gameId, resourceX, resourceY);
 
         if (nodeOpt.isEmpty() || nodeOpt.get().isDepleted()) {
@@ -50,8 +47,6 @@ public class ResourceGatheringService {
 
         ResourceNode primaryNode = nodeOpt.get();
 
-        // Initialize gather slots if not already done
-        // Rebuild slot occupancy from units already gathering from this resource
         if (primaryNode.getGatherSlots() == null) {
             List<Unit> unitsGatheringHere = allUnits.stream()
                 .filter(u -> primaryNode.getId().equals(u.getTargetResourceNodeId()))
@@ -59,30 +54,23 @@ public class ResourceGatheringService {
             primaryNode.initializeGatherSlotsFromUnits(8, unitsGatheringHere);
         }
 
-        // Add staggered delay for squad movement (0-300ms = 0-3 ticks at 10 ticks/sec)
         java.util.Random random = new java.util.Random();
 
-        // Command each unit to gather
         for (Unit unit : units) {
-            // Only villagers can gather
             if (unit.getType() != Unit.UnitType.VILLAGER) {
                 continue;
             }
 
-            // Release any existing slot from previous gathering task
             if (unit.getTargetResourceNodeId() != null && unit.getAssignedSlotIndex() != null) {
                 Optional<ResourceNode> oldNodeOpt = resourceNodeService.getResourceNodeById(unit.getTargetResourceNodeId());
                 oldNodeOpt.ifPresent(oldNode -> oldNode.releaseSlot(unit.getId()));
             }
 
-            // Try to reserve an accessible slot on the primary resource node
             ResourceNode targetNode = primaryNode;
             com.rts.model.GatherSlot assignedSlot = null;
 
-            // Try primary node first
             assignedSlot = reserveAccessibleSlotOnNode(targetNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
 
-            // If primary node is full or all slots blocked, try to find an alternative nearby resource of the same type
             if (assignedSlot == null) {
                 ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
                     gameId, targetNode.getX(), targetNode.getY(), targetNode.getType(),
@@ -98,25 +86,20 @@ public class ResourceGatheringService {
                 continue;
             }
 
-            // Get the world position of the assigned slot
             int[] slotPosition = assignedSlot.getWorldPosition(targetNode.getX(), targetNode.getY());
             int slotX = slotPosition[0];
             int slotY = slotPosition[1];
 
-            // Set staggered delay (random 0-3 ticks)
             int delay = random.nextInt(4);
             unit.setMovementDelayTicks(delay);
 
-            // Store slot assignment
             unit.setAssignedSlotIndex(assignedSlot.getSlotIndex());
             unit.setTargetResourceNodeId(targetNode.getId());
             unit.setGatherState(Unit.GatherState.MOVING_TO_RESOURCE);
 
-            // Set destination to the slot position
             movementService.setUnitDestination(unit, slotX, slotY,
                 terrainData, buildings, allUnits, mapWidth, mapHeight, false);
 
-            // Check if a path was found
             if (unit.getTargetX() == null || unit.getTargetY() == null) {
                 targetNode.releaseSlot(unit.getId());
                 unit.setAssignedSlotIndex(null);
@@ -125,10 +108,6 @@ public class ResourceGatheringService {
         }
     }
 
-    /**
-     * Process gathering for all units
-     * Called each game tick
-     */
     public void processGathering(List<Unit> units, Long gameId, List<Building> buildings,
                                    byte[] terrainData, List<Unit> allUnits, int mapWidth, int mapHeight) {
         for (Unit unit : units) {
@@ -140,11 +119,6 @@ public class ResourceGatheringService {
         }
     }
 
-    /**
-     * Release a unit's gather slot (called when unit dies or receives new orders)
-     * This should be called by MovementService or GameService when a unit is given a move order
-     * or when a unit is removed from the game
-     */
     public void releaseGatherSlot(Unit unit) {
         if (unit.getTargetResourceNodeId() != null && unit.getAssignedSlotIndex() != null) {
             Optional<ResourceNode> nodeOpt = resourceNodeService.getResourceNodeById(unit.getTargetResourceNodeId());
@@ -159,7 +133,6 @@ public class ResourceGatheringService {
                                        byte[] terrainData, List<Unit> allUnits, int mapWidth, int mapHeight) {
         switch (unit.getGatherState()) {
             case IDLE:
-                // Nothing to do
                 break;
             case MOVING_TO_RESOURCE:
                 handleMovingToResource(unit, gameId, buildings, terrainData, allUnits, mapWidth, mapHeight);
@@ -178,13 +151,11 @@ public class ResourceGatheringService {
 
     private void handleMovingToResource(Unit unit, Long gameId, List<Building> buildings,
                                          byte[] terrainData, List<Unit> allUnits, int mapWidth, int mapHeight) {
-        // Handle staggered movement delay
         if (unit.getMovementDelayTicks() > 0) {
             unit.setMovementDelayTicks(unit.getMovementDelayTicks() - 1);
-            return; // Wait for delay to expire
+            return;
         }
 
-        // Get resource node by ID first to check if we should continue
         if (unit.getTargetResourceNodeId() == null) {
             resetGatheringState(unit);
             return;
@@ -198,12 +169,34 @@ public class ResourceGatheringService {
 
         ResourceNode node = nodeOpt.get();
         if (node.isDepleted()) {
+            // Resource depleted while moving to it - try to find an alternative
+            node.releaseSlot(unit.getId());
+            unit.setAssignedSlotIndex(null);
+
+            ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
+                gameId, node.getX(), node.getY(), node.getType(),
+                unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
+
+            if (alternativeNode != null) {
+                GatherSlot newSlot = reserveAccessibleSlotOnNode(
+                    alternativeNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+                if (newSlot != null) {
+                    int[] slotPos = newSlot.getWorldPosition(alternativeNode.getX(), alternativeNode.getY());
+                    unit.setTargetResourceNodeId(alternativeNode.getId());
+                    unit.setAssignedSlotIndex(newSlot.getSlotIndex());
+                    movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                        terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+                    return;
+                } else {
+                    alternativeNode.releaseSlot(unit.getId());
+                }
+            }
+
+            // No alternative found - reset to idle
             resetGatheringState(unit);
             return;
         }
 
-        // Rebuild slot state from all units targeting this resource
-        // (slots are transient and don't persist between method calls)
         if (node.getGatherSlots() == null) {
             final Long nodeId = node.getId();
             List<Unit> unitsGatheringHere = allUnits.stream()
@@ -212,18 +205,14 @@ public class ResourceGatheringService {
             node.initializeGatherSlotsFromUnits(8, unitsGatheringHere);
         }
 
-        // Check if pathfinding failed (MovementService cleared target because no path exists)
         if (!unit.isMoving() && unit.getTargetX() == null && unit.getTargetY() == null) {
-            // Release current slot
             node.releaseSlot(unit.getId());
 
-            // Try to find an alternative resource with free accessible slot
             ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
                 gameId, node.getX(), node.getY(), node.getType(),
                 unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
 
             if (alternativeNode != null && alternativeNode.getId() != node.getId()) {
-                // Reserve accessible slot on new node
                 com.rts.model.GatherSlot newSlot = reserveAccessibleSlotOnNode(
                     alternativeNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
                 if (newSlot != null) {
@@ -245,26 +234,81 @@ public class ResourceGatheringService {
             return;
         }
 
-        // Check if unit has reached resource
-        if (unit.isMoving()) {
-            return;  // Still moving
+        // Validate that the slot is still reserved for this unit
+        if (unit.getAssignedSlotIndex() != null) {
+            GatherSlot currentSlot = node.getSlotForUnit(unit.getId());
+
+            // If the slot is no longer ours, someone else took it - find a new slot
+            if (currentSlot == null || !currentSlot.isOccupiedBy(unit.getId())) {
+                // Release our old claim (in case we still think we have it)
+                node.releaseSlot(unit.getId());
+                unit.setAssignedSlotIndex(null);
+
+                // Try to reserve a new accessible slot on this node
+                com.rts.model.GatherSlot newSlot = reserveAccessibleSlotOnNode(
+                    node, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+
+                if (newSlot != null) {
+                    // Found a new slot on same node - update path to new slot
+                    int[] slotPos = newSlot.getWorldPosition(node.getX(), node.getY());
+                    unit.setAssignedSlotIndex(newSlot.getSlotIndex());
+                    movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                        terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+
+                    if (unit.getTargetX() == null || unit.getTargetY() == null) {
+                        // Failed to path to new slot
+                        node.releaseSlot(unit.getId());
+                        unit.setAssignedSlotIndex(null);
+                        // Fall through to try alternative node below
+                    } else {
+                        // Successfully re-routed to new slot
+                        return;
+                    }
+                }
+
+                // No slot available on this node - try to find an alternative resource
+                ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
+                    gameId, node.getX(), node.getY(), node.getType(),
+                    unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
+
+                if (alternativeNode != null) {
+                    com.rts.model.GatherSlot altSlot = reserveAccessibleSlotOnNode(
+                        alternativeNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+                    if (altSlot != null) {
+                        int[] slotPos = altSlot.getWorldPosition(alternativeNode.getX(), alternativeNode.getY());
+                        movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                            terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+
+                        if (unit.getTargetX() != null && unit.getTargetY() != null) {
+                            unit.setTargetResourceNodeId(alternativeNode.getId());
+                            unit.setAssignedSlotIndex(altSlot.getSlotIndex());
+                            return;
+                        } else {
+                            alternativeNode.releaseSlot(unit.getId());
+                        }
+                    }
+                }
+
+                // No alternative found - reset to idle
+                resetGatheringState(unit);
+                return;
+            }
         }
 
-        // Check if in range
+        if (unit.isMoving()) {
+            return;
+        }
+
         double distance = Math.sqrt(
             Math.pow(unit.getX() - node.getX(), 2) +
             Math.pow(unit.getY() - node.getY(), 2)
         );
 
         if (distance <= GATHER_RANGE) {
-            // Start gathering
             unit.setGatherState(Unit.GatherState.GATHERING);
         } else {
-            // Not in range - slot was blocked/inaccessible
-            // Release current slot
             node.releaseSlot(unit.getId());
 
-            // Try to find an alternative nearby resource with free accessible slot
             ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
                 gameId, node.getX(), node.getY(), node.getType(),
                 unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
@@ -309,8 +353,56 @@ public class ResourceGatheringService {
         ResourceNode node = nodeOpt.get();
 
         if (node.isDepleted()) {
-            resetGatheringState(unit);
-            return;
+            // Resource depleted - if we're carrying resources, go drop them off
+            // Otherwise try to find an alternative resource
+            if (unit.getCarryingAmount() > 0) {
+                // Release gather slot
+                if (unit.getAssignedSlotIndex() != null) {
+                    node.releaseSlot(unit.getId());
+                    unit.setAssignedSlotIndex(null);
+                }
+
+                Building dropOff = findNearestDropOff(unit, buildings);
+                if (dropOff != null) {
+                    int[] dropOffPoint = calculateDropOffPoint(unit, dropOff);
+                    unit.setGatherState(Unit.GatherState.MOVING_TO_DROPOFF);
+                    movementService.setUnitDestination(unit, dropOffPoint[0], dropOffPoint[1],
+                        terrainData, buildings, allUnits, mapWidth, mapHeight, true);
+                    return;
+                } else {
+                    // No drop-off found, go idle
+                    resetGatheringState(unit);
+                    return;
+                }
+            } else {
+                // Not carrying anything - try to find an alternative resource
+                node.releaseSlot(unit.getId());
+                unit.setAssignedSlotIndex(null);
+
+                ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
+                    gameId, node.getX(), node.getY(), node.getType(),
+                    unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
+
+                if (alternativeNode != null) {
+                    GatherSlot newSlot = reserveAccessibleSlotOnNode(
+                        alternativeNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+                    if (newSlot != null) {
+                        int[] slotPos = newSlot.getWorldPosition(alternativeNode.getX(), alternativeNode.getY());
+                        unit.setTargetResourceNodeId(alternativeNode.getId());
+                        unit.setAssignedSlotIndex(newSlot.getSlotIndex());
+                        unit.setGatherState(Unit.GatherState.MOVING_TO_RESOURCE);
+                        movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                            terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+                        return;
+                    } else {
+                        alternativeNode.releaseSlot(unit.getId());
+                    }
+                }
+
+                // No alternative found - reset to idle
+                resetGatheringState(unit);
+                return;
+            }
         }
 
         // Rebuild slot state from all units targeting this resource
@@ -455,35 +547,57 @@ public class ResourceGatheringService {
             // Look up the resource node by ID (not by target coordinates, which now point to drop-off)
             Optional<ResourceNode> nodeOpt = resourceNodeService.getResourceNodeById(unit.getTargetResourceNodeId());
 
-            if (nodeOpt.isPresent() && !nodeOpt.get().isDepleted()) {
-                ResourceNode node = nodeOpt.get();
+            ResourceNode node = null;
+            ResourceNode.ResourceType targetType = null;
+            int searchX = unit.getX();
+            int searchY = unit.getY();
 
-                // Try to reserve an accessible slot (the old slot was likely taken by now)
-                com.rts.model.GatherSlot newSlot = reserveAccessibleSlotOnNode(
-                    node, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+            // Check if original resource still exists and is not depleted
+            if (nodeOpt.isPresent()) {
+                ResourceNode originalNode = nodeOpt.get();
+                targetType = originalNode.getType();
+                searchX = originalNode.getX();
+                searchY = originalNode.getY();
 
-                if (newSlot == null) {
-                    // Node is full or all slots blocked, try to find an alternative
-                    ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
-                        gameId, node.getX(), node.getY(), node.getType(),
-                        unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
+                if (!originalNode.isDepleted()) {
+                    // Try to reserve an accessible slot on the original node
+                    GatherSlot newSlot = reserveAccessibleSlotOnNode(
+                        originalNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
 
-                    if (alternativeNode != null) {
-                        node = alternativeNode;
-                        newSlot = reserveAccessibleSlotOnNode(
-                            node, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+                    if (newSlot != null) {
+                        node = originalNode;
+                        unit.setTargetResourceNodeId(node.getId());
+                        unit.setAssignedSlotIndex(newSlot.getSlotIndex());
+                        unit.setGatherState(Unit.GatherState.MOVING_TO_RESOURCE);
+
+                        int[] slotPos = newSlot.getWorldPosition(node.getX(), node.getY());
+                        movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                            terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+                        return;
                     }
                 }
+            }
 
-                if (newSlot != null) {
-                    unit.setTargetResourceNodeId(node.getId());
-                    unit.setAssignedSlotIndex(newSlot.getSlotIndex());
-                    unit.setGatherState(Unit.GatherState.MOVING_TO_RESOURCE);
+            // Original node is depleted, full, or gone - try to find an alternative
+            if (node == null && targetType != null) {
+                ResourceNode alternativeNode = findNearbyAlternativeResourceWithFreeSlot(
+                    gameId, searchX, searchY, targetType,
+                    unit, terrainData, buildings, allUnits, mapWidth, mapHeight);
 
-                    int[] slotPos = newSlot.getWorldPosition(node.getX(), node.getY());
-                    movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
-                        terrainData, buildings, allUnits, mapWidth, mapHeight, false);
-                    return;
+                if (alternativeNode != null) {
+                    GatherSlot newSlot = reserveAccessibleSlotOnNode(
+                        alternativeNode, unit.getId(), gameId, terrainData, buildings, allUnits, mapWidth, mapHeight);
+
+                    if (newSlot != null) {
+                        unit.setTargetResourceNodeId(alternativeNode.getId());
+                        unit.setAssignedSlotIndex(newSlot.getSlotIndex());
+                        unit.setGatherState(Unit.GatherState.MOVING_TO_RESOURCE);
+
+                        int[] slotPos = newSlot.getWorldPosition(alternativeNode.getX(), alternativeNode.getY());
+                        movementService.setUnitDestination(unit, slotPos[0], slotPos[1],
+                            terrainData, buildings, allUnits, mapWidth, mapHeight, false);
+                        return;
+                    }
                 }
             }
         }
