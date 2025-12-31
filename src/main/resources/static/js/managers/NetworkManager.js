@@ -96,6 +96,27 @@ class NetworkManager {
                     this.eventBus.emit('network:unitsUpdate', update.units);
                 }
                 break;
+
+            case 'RESOURCE_DEPLETED':
+                this.eventBus.emit('network:resourceDepleted', {
+                    nodeId: update.nodeId,
+                    x: update.x,
+                    y: update.y
+                });
+                break;
+
+            case 'VILLAGER_STATS_UPDATE':
+                if (update.stats) {
+                    // Extract stats for current player
+                    const currentPlayer = this.gameState.getCurrentPlayer();
+                    if (currentPlayer && currentPlayer.playerSlot !== undefined) {
+                        const playerKey = 'player' + currentPlayer.playerSlot;
+                        if (update.stats[playerKey]) {
+                            this.eventBus.emit('network:villagerStatsUpdate', update.stats[playerKey]);
+                        }
+                    }
+                }
+                break;
         }
     }
 
@@ -266,14 +287,20 @@ class NetworkManager {
     /**
      * Set rally point for a building
      */
-    async setRallyPoint(buildingId, rallyX, rallyY) {
+    async setRallyPoint(building, rallyX, rallyY) {
         try {
             const response = await fetch(
-                `${this.apiBaseUrl}/${this.gameState.gameId}/buildings/${buildingId}/rally-point`,
+                `${this.apiBaseUrl}/${this.gameState.gameId}/buildings/rally-point`,
                 {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rallyX, rallyY })
+                    body: JSON.stringify({
+                        buildingX: building.x,
+                        buildingY: building.y,
+                        buildingType: building.type,
+                        rallyX,
+                        rallyY
+                    })
                 }
             );
 

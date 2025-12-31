@@ -49,15 +49,6 @@ public class PlaceResourcesForEveryPlayerCommand implements RMSCommand {
         int minDistanceGroupPlacement = getParameter(parameters, "min_distance_group_placement", 0); // Min distance between resource groups
         int maxDistanceGroupPlacement = getParameter(parameters, "max_distance_group_placement", 999); // Max distance between resource groups
 
-        System.out.println("Placing resources for every player:");
-        System.out.println("  Resource type: " + resourceType);
-        System.out.println("  Count per player: " + count);
-        System.out.println("  Distance to players: " + minDistanceToPlayers + "-" + maxDistanceToPlayers);
-        System.out.println("  Group placement radius: " + groupPlacementRadius);
-        System.out.println("  Number of objects per patch: " + numberOfObjects);
-        System.out.println("  Tight grouping: " + tightGrouping);
-        System.out.println("  Distance between groups: " + minDistanceGroupPlacement + "-" + maxDistanceGroupPlacement);
-
         // Track all placed patches for group distance constraints
         List<ResourcePatch> placedPatches = new ArrayList<>();
 
@@ -105,12 +96,7 @@ public class PlaceResourcesForEveryPlayerCommand implements RMSCommand {
                     placedPatches.add(new ResourcePatch(x, y, playerLand.getPlayerNumber()));
 
                     placed = true;
-                    System.out.println("  Player " + playerLand.getPlayerNumber() + ": placed resource patch at (" + x + "," + y + ")");
                 }
-            }
-
-            if (!placed) {
-                System.out.println("  Player " + playerLand.getPlayerNumber() + ": Warning - Could not find valid location for resource patch " + (i + 1));
             }
         }
     }

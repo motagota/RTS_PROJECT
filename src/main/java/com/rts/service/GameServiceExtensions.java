@@ -157,7 +157,6 @@ public class GameServiceExtensions {
      */
     public void gatherResource(Long gameId, List<Integer> unitIds, Integer resourceX, Integer resourceY) {
         try {
-            System.out.println("GameServiceExtensions.gatherResource called for game " + gameId);
             mapService.commandGatherResource(gameId, unitIds, resourceX, resourceY);
         } catch (Exception e) {
             System.err.println("Error in GameServiceExtensions.gatherResource: " + e.getMessage());

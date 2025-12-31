@@ -40,13 +40,6 @@ public class PlaceNeutralResourcesCommand implements RMSCommand {
         int minDistanceGroupPlacement = getParameter(parameters, "min_distance_group_placement", 0);
         int minDistanceToPlayers = getParameter(parameters, "min_distance_to_players", 0);
 
-        System.out.println("Placing neutral resources:");
-        System.out.println("  Resource type: " + resourceType);
-        System.out.println("  Number of groups: " + numberOfGroups);
-        System.out.println("  Objects per group: " + numberOfObjects);
-        System.out.println("  Group placement radius: " + groupPlacementRadius);
-        System.out.println("  Min distance between groups: " + minDistanceGroupPlacement);
-
         // Track placed patches
         List<ResourcePatch> placedPatches = new ArrayList<>();
 
@@ -70,12 +63,7 @@ public class PlaceNeutralResourcesCommand implements RMSCommand {
                     placedPatches.add(new ResourcePatch(x, y));
 
                     placed = true;
-                    System.out.println("  Placed neutral resource group " + (i + 1) + " at (" + x + "," + y + ")");
                 }
-            }
-
-            if (!placed) {
-                System.out.println("  Warning - Could not find valid location for neutral resource group " + (i + 1));
             }
         }
     }

@@ -15,17 +15,12 @@ public class PlaceHeadquartersCommand implements RMSCommand {
     @Override
     public void execute(MapGenerationContext context, Map<String, Object> parameters) {
         if (!context.shouldGenerateHeadquarters()) {
-            System.out.println("Headquarters generation is disabled, skipping...");
             return;
         }
-
-        System.out.println("Placing headquarters for " + context.getPlayerStarts().size() + " players");
 
         for (MapGenerationContext.PlayerStartPosition start : context.getPlayerStarts()) {
             placeHeadquartersAt(context, start.x, start.y, start.playerNumber);
         }
-
-        System.out.println("Placed " + context.getBuildings().size() + " headquarters buildings");
     }
 
     @Override
@@ -52,7 +47,5 @@ public class PlaceHeadquartersCommand implements RMSCommand {
         int buildingY = centerY - 1;
 
         context.addBuilding(new Building(buildingX, buildingY, Building.BuildingType.TOWN_CENTER, playerNumber));
-
-        System.out.println("Placed headquarters for player " + playerNumber + " at (" + buildingX + "," + buildingY + ") covering 2x2 area");
     }
 }

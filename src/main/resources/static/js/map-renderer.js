@@ -37,6 +37,7 @@ class MapRenderer {
         this.hoveredBuilding = null;   // Currently hovered building
         this.selectedUnits = [];       // Array of selected units (for multi-selection)
         this.hoveredUnit = null;       // Currently hovered unit
+        this.hoveredResource = null;   // Currently hovered resource node
 
         // Client-side movement interpolation
         this.unitDisplayPositions = new Map(); // Map of unit.id -> {x, y} for smooth rendering
@@ -149,11 +150,21 @@ class MapRenderer {
             this.renderUnits(offsetX, offsetY);
         }
 
+        // Render hovered resource highlight
+        if (this.hoveredResource) {
+            this.renderResourceHoverHighlight(offsetX, offsetY);
+        }
+
         // Render click indicators on top of everything
         this.renderClickIndicators(offsetX, offsetY);
 
         // Render drag selection rectangle
         this.renderDragSelection();
+
+        // Render gather slot visualization (debug mode)
+        if (this.gatherSlotsToRender) {
+            this.renderGatherSlots(offsetX, offsetY);
+        }
 
         // Render player starting positions
         if (this.mapData.playerStarts) {
@@ -967,6 +978,11 @@ class MapRenderer {
 
         let needsRedraw = false;
 
+        // If we're hovering a resource, redraw for pulsing animation
+        if (this.hoveredResource) {
+            needsRedraw = true;
+        }
+
         // Parse units if needed
         let units = this.mapData.units;
         if (typeof units === 'string') {
@@ -1086,6 +1102,41 @@ class MapRenderer {
         this.mapData.units = units;
 
         // Don't render here - let the animation loop handle it
+    }
+
+    /**
+     * Remove a resource from the map when it's depleted
+     * Updates the terrain data to remove the resource object
+     */
+    removeResource(x, y) {
+        if (!this.mapData || !this.mapData.terrainData) {
+            console.warn('Cannot remove resource: map data not loaded');
+            return;
+        }
+
+        console.log(`Removing resource at (${x}, ${y})`);
+
+        // Parse terrain data if it's a string
+        let terrainData = this.mapData.terrainData;
+        if (typeof terrainData === 'string') {
+            terrainData = JSON.parse(terrainData);
+            this.mapData.terrainData = terrainData;
+        }
+
+        // Find the cell at the coordinates
+        if (terrainData.cells) {
+            const cell = terrainData.cells.find(c => c.x === x && c.y === y);
+            if (cell) {
+                // Remove the object from the cell (which is the resource)
+                cell.object = null;
+                console.log(`Removed resource object from cell (${x}, ${y})`);
+
+                // Invalidate terrain cache to force re-render
+                this.terrainCached = false;
+            } else {
+                console.warn(`No cell found at (${x}, ${y})`);
+            }
+        }
     }
 
     /**
@@ -1378,6 +1429,184 @@ class MapRenderer {
 
         // Reset line dash
         this.ctx.setLineDash([]);
+
+        this.ctx.restore();
+    }
+
+    /**
+     * Set the currently hovered resource node
+     * @param {Object|null} resource - Resource node to hover or null to clear
+     */
+    setHoveredResource(resource) {
+        this.hoveredResource = resource;
+    }
+
+    /**
+     * Get the currently hovered resource node
+     * @returns {Object|null}
+     */
+    getHoveredResource() {
+        return this.hoveredResource;
+    }
+
+    /**
+     * Render hover highlight for a resource node
+     */
+    renderResourceHoverHighlight(offsetX, offsetY) {
+        if (!this.hoveredResource) {
+            return;
+        }
+
+        const x = offsetX + this.hoveredResource.x * this.tileSize;
+        const y = offsetY + this.hoveredResource.y * this.tileSize;
+
+        this.ctx.save();
+
+        // Draw glowing outline
+        this.ctx.strokeStyle = '#FFD700';  // Gold color
+        this.ctx.lineWidth = 2;
+        this.ctx.globalAlpha = 0.8;
+
+        // Pulsing effect using time
+        const pulse = Math.sin(Date.now() / 200) * 0.2 + 0.8; // 0.6 to 1.0
+        this.ctx.globalAlpha = pulse;
+
+        // Draw outer glow
+        this.ctx.strokeRect(x - 2, y - 2, this.tileSize + 4, this.tileSize + 4);
+
+        // Draw inner highlight
+        this.ctx.strokeStyle = '#FFFFFF';
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(x - 1, y - 1, this.tileSize + 2, this.tileSize + 2);
+
+        // Draw corner indicators
+        const cornerSize = 3;
+        this.ctx.strokeStyle = '#FFD700';
+        this.ctx.lineWidth = 2;
+        this.ctx.globalAlpha = 1.0;
+
+        // Top-left corner
+        this.ctx.beginPath();
+        this.ctx.moveTo(x - 2, y - 2 + cornerSize);
+        this.ctx.lineTo(x - 2, y - 2);
+        this.ctx.lineTo(x - 2 + cornerSize, y - 2);
+        this.ctx.stroke();
+
+        // Top-right corner
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + this.tileSize + 2 - cornerSize, y - 2);
+        this.ctx.lineTo(x + this.tileSize + 2, y - 2);
+        this.ctx.lineTo(x + this.tileSize + 2, y - 2 + cornerSize);
+        this.ctx.stroke();
+
+        // Bottom-left corner
+        this.ctx.beginPath();
+        this.ctx.moveTo(x - 2, y + this.tileSize + 2 - cornerSize);
+        this.ctx.lineTo(x - 2, y + this.tileSize + 2);
+        this.ctx.lineTo(x - 2 + cornerSize, y + this.tileSize + 2);
+        this.ctx.stroke();
+
+        // Bottom-right corner
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + this.tileSize + 2 - cornerSize, y + this.tileSize + 2);
+        this.ctx.lineTo(x + this.tileSize + 2, y + this.tileSize + 2);
+        this.ctx.lineTo(x + this.tileSize + 2, y + this.tileSize + 2 - cornerSize);
+        this.ctx.stroke();
+
+        this.ctx.restore();
+    }
+
+    /**
+     * Set gather slots to render for debugging
+     * @param {Object} slotData - { resourceNode: {x, y}, slots: [{slotIndex, worldX, worldY, accessible, occupied}] }
+     */
+    setGatherSlotsToRender(slotData) {
+        this.gatherSlotsToRender = slotData;
+        this.render();
+    }
+
+    /**
+     * Clear gather slots visualization
+     */
+    clearGatherSlots() {
+        this.gatherSlotsToRender = null;
+        this.render();
+    }
+
+    /**
+     * Render gather slots on the map
+     */
+    renderGatherSlots(offsetX, offsetY) {
+        if (!this.gatherSlotsToRender) {
+            return;
+        }
+
+        const { resourceNode, slots } = this.gatherSlotsToRender;
+        const resourceX = offsetX + resourceNode.x * this.tileSize + this.tileSize / 2;
+        const resourceY = offsetY + resourceNode.y * this.tileSize + this.tileSize / 2;
+
+        this.ctx.save();
+
+        // Draw each slot
+        slots.forEach(slot => {
+            const slotX = offsetX + slot.worldX * this.tileSize + this.tileSize / 2;
+            const slotY = offsetY + slot.worldY * this.tileSize + this.tileSize / 2;
+
+            // Determine slot color based on state
+            let color, fillColor;
+            if (!slot.accessible) {
+                color = '#888';  // Gray for blocked
+                fillColor = 'rgba(136, 136, 136, 0.3)';
+            } else if (slot.occupied) {
+                color = '#f44';  // Red for occupied
+                fillColor = 'rgba(255, 68, 68, 0.3)';
+            } else {
+                color = '#4f4';  // Green for free
+                fillColor = 'rgba(68, 255, 68, 0.2)';
+            }
+
+            // Draw line from resource to slot
+            this.ctx.strokeStyle = color;
+            this.ctx.lineWidth = 1;
+            this.ctx.globalAlpha = 0.4;
+            this.ctx.setLineDash([2, 2]);
+            this.ctx.beginPath();
+            this.ctx.moveTo(resourceX, resourceY);
+            this.ctx.lineTo(slotX, slotY);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.globalAlpha = 1.0;
+
+            // Draw slot circle
+            this.ctx.fillStyle = fillColor;
+            this.ctx.beginPath();
+            this.ctx.arc(slotX, slotY, this.tileSize * 0.4, 0, Math.PI * 2);
+            this.ctx.fill();
+
+            this.ctx.strokeStyle = color;
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+
+            // Draw slot index
+            this.ctx.fillStyle = color;
+            this.ctx.font = `bold ${this.tileSize * 0.5}px Arial`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(slot.slotIndex, slotX, slotY);
+
+            // Draw X symbol for blocked slots
+            if (!slot.accessible) {
+                this.ctx.strokeStyle = '#f44';
+                this.ctx.lineWidth = 2;
+                const crossSize = this.tileSize * 0.3;
+                this.ctx.beginPath();
+                this.ctx.moveTo(slotX - crossSize, slotY - crossSize);
+                this.ctx.lineTo(slotX + crossSize, slotY + crossSize);
+                this.ctx.moveTo(slotX + crossSize, slotY - crossSize);
+                this.ctx.lineTo(slotX - crossSize, slotY + crossSize);
+                this.ctx.stroke();
+            }
+        });
 
         this.ctx.restore();
     }

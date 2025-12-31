@@ -75,16 +75,7 @@ public class GameService {
             int playerCount = lobby.getPlayers().size();
             int mapSize = 120; // Default medium map size
 
-            System.out.println("=== MAP GENERATION DEBUG ===");
-            System.out.println("Lobby ID: " + lobby.getId());
-            System.out.println("Lobby players count: " + playerCount);
-            System.out.println("Lobby players: " + lobby.getPlayers());
-            System.out.println("Map template: " + mapTemplateName);
-            System.out.println("Map size: " + mapSize);
-            System.out.println("===========================");
-
             mapService.generateMapFromRMS(mapTemplateName, playerCount, savedGame.getId(), mapSize);
-            System.out.println("Generated RMS map for game " + savedGame.getId() + " using template: " + mapTemplateName + " with " + playerCount + " players");
 
             // Initialize resource nodes from the generated map
             Optional<GeneratedMap> generatedMapOpt = mapService.getGeneratedMapByGameId(savedGame.getId());
@@ -93,7 +84,6 @@ public class GameService {
                 // Decompress terrain data and pass to resource node service
                 String terrainJson = mapService.decompressAndDeserializeMapGrid(generatedMap.getTerrainData());
                 resourceNodeService.initializeResourceNodesFromMap(savedGame, terrainJson);
-                System.out.println("Initialized resource nodes for game " + savedGame.getId());
             }
         } catch (Exception e) {
             System.err.println("Failed to generate map for game " + savedGame.getId() + ": " + e.getMessage());
@@ -289,7 +279,15 @@ public class GameService {
         int goldCost = type.getGoldCost();
 
         if (!player.getResources().canAfford(woodCost, foodCost, stoneCost, goldCost)) {
-            throw new IllegalStateException("Insufficient resources");
+            String errorMsg = String.format(
+                "Insufficient resources. Need: %d wood, %d food, %d stone, %d gold. Have: %d wood, %d food, %d stone, %d gold",
+                woodCost, foodCost, stoneCost, goldCost,
+                player.getResources().getWood(),
+                player.getResources().getFood(),
+                player.getResources().getStone(),
+                player.getResources().getGold()
+            );
+            throw new IllegalStateException(errorMsg);
         }
 
         // Deduct resources
@@ -354,8 +352,6 @@ public class GameService {
         for (ProductionQueueItem item : inProgressItems) {
 
             if (item.getCompletesAt() != null && (item.getCompletesAt().isBefore(now) || item.getCompletesAt().isEqual(now))) {
-                System.out.println(">>> PRODUCTION COMPLETE - Starting spawn process");
-                System.out.flush();
                 try {
                     // Spawn the unit on the map
                     spawnUnitFromProduction(gameId, item);
@@ -363,9 +359,6 @@ public class GameService {
                     // Mark as completed
                     item.setStatus("COMPLETED");
                     productionQueueRepository.save(item);
-
-                    System.out.println("Production completed for player " + item.getPlayerName() +
-                            ": " + item.getUnitType() + " at building (" + item.getBuildingX() + "," + item.getBuildingY() + ")");
 
                     // Start the next queued item for this building
                     startNextQueuedItem(gameId, item.getBuildingX(), item.getBuildingY(), item.getBuildingType());
@@ -406,20 +399,13 @@ public class GameService {
     }
 
     private void spawnUnitFromProduction(Long gameId, ProductionQueueItem item)  {
-        System.out.println(">>> spawnUnitFromProduction: START - method entered");
-        System.out.flush();
-
         // Parse unit type
-        System.out.println(">>> About to parse unit type: " + item.getUnitType());
-        System.out.flush();
         Unit.UnitType unitType = Unit.UnitType.valueOf(item.getUnitType());
-        System.out.println(">>> Parsed unit type: " + unitType);
-        System.out.flush();
 
-        // Spawn unit next to the building (not at rally point)
-        int spawnX = item.getBuildingX() + 2; // Spawn to the right of building
-        int spawnY = item.getBuildingY();
-        System.out.println(">>> Spawn pos next to building: (" + spawnX + "," + spawnY + ")");
+        // Find an empty spawn location around the building
+        int[] spawnPos = findEmptySpawnLocation(gameId, item.getBuildingX(), item.getBuildingY(), item.getBuildingType());
+        int spawnX = spawnPos[0];
+        int spawnY = spawnPos[1];
 
         Integer rallyPointX = null;
         Integer rallyPointY = null;
@@ -448,7 +434,6 @@ public class GameService {
                             if (building.getRallyPointX() != null && building.getRallyPointY() != null) {
                                 rallyPointX = building.getRallyPointX();
                                 rallyPointY = building.getRallyPointY();
-                                System.out.println("Rally point found: (" + rallyPointX + "," + rallyPointY + ")");
                             }
                             break;
                         }
@@ -460,21 +445,146 @@ public class GameService {
         }
 
         // Spawn the unit next to the building
-        System.out.println(">>> Before mapService.spawnUnit call");
-        System.out.flush();
-        System.out.println(">>> Calling mapService.spawnUnit with gameId=" + gameId + ", pos=(" + spawnX + "," + spawnY + "), type=" + unitType + ", player=" + item.getPlayerSlot());
-        System.out.flush();
-
         mapService.spawnUnit(gameId, spawnX, spawnY, unitType, item.getPlayerSlot());
 
-        // If rally point is set, make the unit walk there
+        // If rally point is set, make the unit walk there or gather if it's a resource
         if (rallyPointX != null && rallyPointY != null) {
-            System.out.println("Setting unit to walk to rally point: (" + rallyPointX + "," + rallyPointY + ")");
-            mapService.setUnitDestination(gameId, spawnX, spawnY, rallyPointX, rallyPointY);
-        }
 
-        System.out.println(">>> After mapService.spawnUnit call - completed successfully");
-        System.out.flush();
+            // Check if rally point is on a resource node
+            if (unitType == Unit.UnitType.VILLAGER) {
+                try {
+                    // Check if there's a resource at the rally point
+                    Optional<com.rts.model.ResourceNode> resourceOpt =
+                        resourceNodeService.getResourceNodeAt(gameId, rallyPointX, rallyPointY);
+
+                    if (resourceOpt.isPresent() && !resourceOpt.get().isDepleted()) {
+                        // Rally point is on a resource - command unit to gather
+                        // Get the newly spawned unit by position
+                        Optional<GeneratedMap> mapOpt = mapService.getGeneratedMapByGameId(gameId);
+                        if (mapOpt.isPresent()) {
+                            GeneratedMap generatedMap = mapOpt.get();
+                            String unitsJson = generatedMap.getUnits();
+
+                            if (unitsJson != null && !unitsJson.isEmpty()) {
+                                com.fasterxml.jackson.databind.ObjectMapper objectMapper =
+                                    new com.fasterxml.jackson.databind.ObjectMapper();
+                                java.util.List<Unit> units = objectMapper.readValue(
+                                    unitsJson,
+                                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Unit.class)
+                                );
+
+                                // Find the unit at the spawn position (just created)
+                                Unit spawnedUnit = null;
+                                for (Unit u : units) {
+                                    if (u.getX() == spawnX && u.getY() == spawnY) {
+                                        spawnedUnit = u;
+                                        break;
+                                    }
+                                }
+
+                                if (spawnedUnit != null) {
+                                    // Command to gather resource using unit ID
+                                    java.util.List<Integer> unitIdList = java.util.List.of(spawnedUnit.getId());
+                                    mapService.commandGatherResource(gameId, unitIdList, rallyPointX, rallyPointY);
+                                }
+                            }
+                        }
+                    } else {
+                        // Rally point is not a resource - just move there
+                        mapService.setUnitDestination(gameId, spawnX, spawnY, rallyPointX, rallyPointY);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error checking rally point resource: " + e.getMessage());
+                    e.printStackTrace();
+                    // Fallback to normal movement
+                    mapService.setUnitDestination(gameId, spawnX, spawnY, rallyPointX, rallyPointY);
+                }
+            } else {
+                // Non-villager units just move to rally point
+                mapService.setUnitDestination(gameId, spawnX, spawnY, rallyPointX, rallyPointY);
+            }
+        }
+    }
+
+    /**
+     * Find an empty spawn location around a building using expanding spiral search
+     * Returns [x, y] coordinates
+     */
+    private int[] findEmptySpawnLocation(Long gameId, int buildingX, int buildingY, String buildingType) {
+        try {
+            Optional<GeneratedMap> mapOpt = mapService.getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                // Fallback to default position if map not found
+                return new int[]{buildingX + 2, buildingY};
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+            // Get all units
+            java.util.List<Unit> units = new java.util.ArrayList<>();
+            String unitsJson = generatedMap.getUnits();
+            if (unitsJson != null && !unitsJson.isEmpty()) {
+                units = objectMapper.readValue(
+                        unitsJson,
+                        objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Unit.class)
+                );
+            }
+
+            // Get building dimensions (Town Center is 2x2, others are 1x1)
+            int buildingWidth = buildingType.equals("TOWN_CENTER") ? 2 : 1;
+            int buildingHeight = buildingType.equals("TOWN_CENTER") ? 2 : 1;
+
+            // Define spawn positions in expanding spiral (right, down, left, up pattern)
+            // Start from positions adjacent to the building
+            int[][] offsets = {
+                // Right side of building
+                {buildingWidth, 0}, {buildingWidth, 1}, {buildingWidth, -1},
+                {buildingWidth + 1, 0}, {buildingWidth + 1, 1}, {buildingWidth + 1, -1},
+                // Bottom
+                {0, buildingHeight}, {1, buildingHeight}, {-1, buildingHeight},
+                // Left
+                {-1, 0}, {-1, 1}, {-1, -1},
+                // Top
+                {0, -1}, {1, -1}, {-1, -1},
+                // Farther out
+                {buildingWidth + 2, 0}, {0, buildingHeight + 1}, {-2, 0}, {0, -2}
+            };
+
+            // Try each offset to find an empty spot
+            for (int[] offset : offsets) {
+                int spawnX = buildingX + offset[0];
+                int spawnY = buildingY + offset[1];
+
+                // Check if position is within map bounds
+                if (spawnX < 0 || spawnX >= generatedMap.getWidth() ||
+                    spawnY < 0 || spawnY >= generatedMap.getHeight()) {
+                    continue;
+                }
+
+                // Check if position is occupied by another unit
+                boolean occupied = false;
+                for (Unit unit : units) {
+                    if (unit.getX() == spawnX && unit.getY() == spawnY) {
+                        occupied = true;
+                        break;
+                    }
+                }
+
+                if (!occupied) {
+                    return new int[]{spawnX, spawnY};
+                }
+            }
+
+            // If all spots are occupied, return the default position anyway
+            // The unit will spawn on top of others (better than blocking production)
+            return new int[]{buildingX + buildingWidth, buildingY};
+
+        } catch (Exception e) {
+            System.err.println("Error finding spawn location: " + e.getMessage());
+            // Fallback to default
+            return new int[]{buildingX + 2, buildingY};
+        }
     }
 
     private void startNextQueuedItem(Long gameId, Integer buildingX, Integer buildingY, String buildingType) {
@@ -495,9 +605,6 @@ public class GameService {
             nextItem.setStartedAt(LocalDateTime.now());
             nextItem.setCompletesAt(LocalDateTime.now().plusSeconds(nextItem.getProductionTimeSeconds()));
             productionQueueRepository.save(nextItem);
-
-            System.out.println("Started next queued item for building (" + buildingX + "," + buildingY + "): " +
-                    nextItem.getUnitType() + " for player " + nextItem.getPlayerName());
         }
     }
 
@@ -507,7 +614,6 @@ public class GameService {
             GamePlayer player = playerOpt.get();
             player.setPlayerStatus("BOOTED");
             gamePlayerRepository.save(player);
-            System.out.println("Game " + gameId + " - Player " + playerName + " has been booted");
         }
     }
 
@@ -579,8 +685,6 @@ public class GameService {
 
         @Override
         public void run() {
-            System.out.println("Game instance started for game ID: " + gameId);
-
             try {
                 // Wait for all players to be ready
                 while (running && !gameService.areAllPlayersReady(gameId)) {
@@ -589,22 +693,19 @@ public class GameService {
 
                     // grace period to allow disconnected players to reconnect
                     if (gameService.isAnyPlayerDisconnectedAndAllOthersReady(gameId)) {
-                        System.out.println("Game " + gameId + " has disconnected players but all others are READY. Cancelling game");                        
-                        gameService.updateGameStatus(gameId, "CANCELLED");                       
+                        gameService.updateGameStatus(gameId, "CANCELLED");
                         gameService.stopGame(gameId);
                         return;
                     }
-                    
+
                 }
 
                 if (!running) {
-                    System.out.println("Game " + gameId + " stopped before becoming ACTIVE");
                     return;
                 }
 
                 // Transition to ACTIVE
                 gameService.updateGameStatus(gameId, "ACTIVE");
-                System.out.println("Game " + gameId + " is now ACTIVE");
 
                 // Main game loop
                 while (running) {
@@ -615,8 +716,11 @@ public class GameService {
                         // Process production queue
                         gameService.processProductionQueue(gameId);
 
-                        // Process unit movement                       
+                        // Process unit movement
                         gameService.mapService.processUnitMovement(gameId);
+
+                        // Send villager stats update (every tick)
+                        gameService.sendVillagerStatsUpdate(gameId);
 
                         // TODO: Additional game logic here
                         // - Update game state
@@ -631,8 +735,6 @@ public class GameService {
                     Thread.sleep(100); // 10 FPS game tick
                 }
 
-                System.out.println("Game loop exited normally for game " + gameId + " (running=" + running + ")");
-
             } catch (InterruptedException e) {
                 System.err.println("INTERRUPTED: Game thread interrupted for game ID: " + gameId);
                 e.printStackTrace();
@@ -640,8 +742,6 @@ public class GameService {
             } catch (Exception e) {
                 System.err.println("FATAL: Unhandled exception in game thread for game " + gameId);
                 e.printStackTrace();
-            } finally {
-                System.out.println("Game instance stopped for game ID: " + gameId + " (running=" + running + ")");
             }
         }
 
@@ -685,7 +785,6 @@ public class GameService {
                 building.setRallyPointX(rallyPointX);
                 building.setRallyPointY(rallyPointY);
                 found = true;
-                System.out.println("Set rally point for building at (" + buildingX + "," + buildingY + ") to (" + rallyPointX + "," + rallyPointY + ")");
                 break;
             }
         }
@@ -696,9 +795,120 @@ public class GameService {
 
         // Serialize buildings back to JSON and save
         String updatedBuildingsJson = objectMapper.writeValueAsString(buildings);
-        System.out.println("Updated buildings JSON: " + updatedBuildingsJson);
         generatedMap.setBuildings(updatedBuildingsJson);
         mapService.saveGeneratedMap(generatedMap);
-        System.out.println("Rally point saved successfully");
+    }
+
+    /**
+     * Send villager statistics update to all players
+     * Called from game loop every tick
+     */
+    public void sendVillagerStatsUpdate(Long gameId) {
+        try {
+            List<GamePlayer> players = gamePlayerRepository.findByGameId(gameId);
+            Map<String, Object> allPlayerStats = new java.util.HashMap<>();
+
+            for (GamePlayer player : players) {
+                Map<String, Object> playerStats = getVillagerStats(gameId, player.getPlayerSlot());
+                allPlayerStats.put("player" + player.getPlayerSlot(), playerStats);
+            }
+
+            // Send to all clients
+            messagingTemplate.convertAndSend("/topic/game/" + gameId,
+                Map.of("type", "VILLAGER_STATS_UPDATE",
+                       "stats", allPlayerStats));
+
+        } catch (Exception e) {
+            // Don't spam logs - this runs every tick
+            // Only log first occurrence or significant errors
+        }
+    }
+
+    /**
+     * Get villager statistics for a specific player
+     * Returns counts of idle villagers and villagers working on each resource type
+     */
+    public Map<String, Object> getVillagerStats(Long gameId, Integer playerId) {
+        Map<String, Object> stats = new java.util.HashMap<>();
+
+        try {
+            Optional<GeneratedMap> mapOpt = mapService.getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                return stats;
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+            String unitsJson = generatedMap.getUnits();
+
+            if (unitsJson == null || unitsJson.isEmpty()) {
+                stats.put("idle", 0);
+                stats.put("gold", 0);
+                stats.put("stone", 0);
+                stats.put("food", 0);
+                stats.put("wood", 0);
+                return stats;
+            }
+
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            java.util.List<Unit> units = objectMapper.readValue(
+                unitsJson,
+                objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, Unit.class)
+            );
+
+            int idleCount = 0;
+            int goldCount = 0;
+            int stoneCount = 0;
+            int foodCount = 0;
+            int woodCount = 0;
+
+            for (Unit unit : units) {
+                // Only count villagers for this player
+                if (unit.getPlayerNumber() != playerId || unit.getType() != Unit.UnitType.VILLAGER) {
+                    continue;
+                }
+
+                // Check if idle (not moving, not gathering)
+                if (!unit.isMoving() && unit.getGatherState() == Unit.GatherState.IDLE) {
+                    idleCount++;
+                } else if (unit.getGatherState() == Unit.GatherState.GATHERING ||
+                           unit.getGatherState() == Unit.GatherState.MOVING_TO_RESOURCE) {
+                    // Unit is actively gathering or moving to gather
+                    Long resourceNodeId = unit.getTargetResourceNodeId();
+                    if (resourceNodeId != null) {
+                        Optional<ResourceNode> nodeOpt = resourceNodeService.getResourceNodeById(resourceNodeId);
+                        if (nodeOpt.isPresent()) {
+                            ResourceNode node = nodeOpt.get();
+                            switch (node.getType()) {
+                                case GOLD:
+                                    goldCount++;
+                                    break;
+                                case STONE:
+                                    stoneCount++;
+                                    break;
+                                case BERRIES:
+                                case FORAGE:  // Include both BERRIES and FORAGE as food
+                                    foodCount++;
+                                    break;
+                                case TREE:
+                                    woodCount++;
+                                    break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            stats.put("idle", idleCount);
+            stats.put("gold", goldCount);
+            stats.put("stone", stoneCount);
+            stats.put("food", foodCount);
+            stats.put("wood", woodCount);
+
+        } catch (Exception e) {
+            System.err.println("Error calculating villager stats: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return stats;
     }
 }

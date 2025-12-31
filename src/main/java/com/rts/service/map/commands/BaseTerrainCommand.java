@@ -24,8 +24,6 @@ public class BaseTerrainCommand implements RMSCommand {
                 context.setElevationAt(x, y, 0);
             }
         }
-
-        System.out.println("Applied base terrain: " + terrainType);
     }
 
     @Override

@@ -30,10 +30,6 @@ public class PlayerStartsCommand implements RMSCommand {
         // Ensure we're at least edgeMin away from edges
         int maxRadius = Math.min(centerX - edgeMin - startRadius, centerY - edgeMin - startRadius);
 
-        System.out.println("Placing " + playerCount + " players in circle formation");
-        System.out.println("Map size: " + width + "x" + height + ", Center: (" + centerX + "," + centerY + ")");
-        System.out.println("Spawn radius: " + maxRadius);
-
         // Place players in a circle, with opposing players on opposite sides
         double angleIncrement = (2 * Math.PI) / playerCount;
 
@@ -54,9 +50,6 @@ public class PlayerStartsCommand implements RMSCommand {
 
             // Clear and flatten the starting area
             clearStartingArea(context, x, y, startRadius);
-
-            System.out.println("Player " + (i + 1) + " start: (" + x + "," + y + ") at angle " + Math.toDegrees(angle));
-            System.out.println("  Player land radius: " + context.getPlayerLandRadius());
         }
     }
 

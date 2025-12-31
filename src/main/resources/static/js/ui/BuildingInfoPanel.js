@@ -40,8 +40,9 @@ class BuildingInfoPanel {
                 <h3>${buildingName}</h3>
                 <p><strong>Owner:</strong> You</p>
                 <p><strong>Position:</strong> (${building.x}, ${building.y})</p>
-                ${building.rallyX !== null && building.rallyX !== undefined ?
-                    `<p><strong>Rally Point:</strong> (${building.rallyX}, ${building.rallyY})</p>` :
+                ${(building.rallyPointX !== null && building.rallyPointX !== undefined) ||
+                  (building.rallyX !== null && building.rallyX !== undefined) ?
+                    `<p><strong>Rally Point:</strong> (${building.rallyPointX || building.rallyX}, ${building.rallyPointY || building.rallyY})</p>` :
                     '<p><strong>Rally Point:</strong> Not set</p>'}
                 <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 4px;">
                     <small style="color: #aaa;">💡 Use production buttons to train units | Press T to set rally point</small>

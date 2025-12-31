@@ -30,12 +30,6 @@ public class PlaceTreesCommand implements RMSCommand {
 
         int terrainType = getTerrainType(terrainToGrowOn);
 
-        System.out.println("Placing trees on forest terrain:");
-        System.out.println("  Max trees: " + numberOfObjects);
-        System.out.println("  Terrain to grow on: " + terrainToGrowOn);
-        System.out.println("  Avoid player starts: " + avoidPlayerStartAreas);
-        System.out.println("  Density: " + density + "%");
-
         Random random = context.getRandom();
         int treesPlaced = 0;
 
@@ -60,8 +54,6 @@ public class PlaceTreesCommand implements RMSCommand {
                 }
             }
         }
-
-        System.out.println("  Available forest tiles: " + availableForestTiles);
 
         // Calculate how many tiles to fill based on density
         int targetTreesToPlace = Math.min(numberOfObjects, (availableForestTiles * density) / 100);
@@ -90,8 +82,6 @@ public class PlaceTreesCommand implements RMSCommand {
                 }
             }
         }
-
-        System.out.println("Trees placed: " + treesPlaced + " / " + targetTreesToPlace);
     }
 
     @Override

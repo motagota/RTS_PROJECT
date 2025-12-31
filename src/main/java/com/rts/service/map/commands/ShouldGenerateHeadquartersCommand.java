@@ -24,8 +24,6 @@ public class ShouldGenerateHeadquartersCommand implements RMSCommand {
         }
 
         context.setShouldGenerateHeadquarters(shouldGenerate);
-
-        System.out.println("Should generate headquarters: " + shouldGenerate);
     }
 
     @Override

@@ -17,9 +17,12 @@ class ProductionPanel {
             this.updateButtons(building);
         });
 
-        this.eventBus.on('selection:unitsChanged', () => {
-            // Hide production buttons when units are selected
-            this.updateButtons(null);
+        this.eventBus.on('selection:unitsChanged', (units) => {
+            // Only hide production buttons when units are actually selected
+            // (not when clearing selection for a building)
+            if (units && units.length > 0) {
+                this.updateButtons(null);
+            }
         });
 
         this.eventBus.on('hotkey:production', (data) => {
@@ -33,7 +36,13 @@ class ProductionPanel {
         productionButtons.forEach(button => {
             button.addEventListener('click', () => {
                 const action = button.getAttribute('data-action');
-                this.handleProductionClick(action);
+
+                // Handle rally point button separately
+                if (action === 'rally') {
+                    this.eventBus.emit('hotkey:toggleRallyPoint');
+                } else {
+                    this.handleProductionClick(action);
+                }
             });
         });
     }
@@ -49,6 +58,9 @@ class ProductionPanel {
 
         try {
             await this.networkManager.enqueueProduction(action);
+
+            // Trigger production queue update
+            this.eventBus.emit('network:productionQueueUpdate');
         } catch (error) {
             alert(error.message || 'Failed to queue unit production');
         }
@@ -90,7 +102,6 @@ class ProductionPanel {
 
         // Show buttons based on building type
         productionButtons.forEach(btn => {
-            const action = btn.getAttribute('data-action');
             const buildingType = btn.getAttribute('data-building');
 
             if (buildingType === building.type) {

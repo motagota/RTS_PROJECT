@@ -79,6 +79,9 @@ public class Unit {
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient double movementProgress = 0.0;  // Accumulated movement progress towards next tile
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient int blockedTicks = 0;  // Number of ticks unit has been blocked by another unit
+
     // Resource gathering fields
     private Long targetResourceNodeId;  // Resource node being gathered from
     private String carryingResourceType;  // Type of resource being carried (GOLD, STONE, BERRIES, TREE)
@@ -88,6 +91,14 @@ public class Unit {
 
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient int gatherTickCounter = 0;  // Counts ticks for gathering timing
+
+    // Gather slot assignment (local offset from resource node)
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient Integer assignedSlotIndex;  // Index of the slot assigned to this unit
+
+    // Staggered movement delay for squad coordination
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient int movementDelayTicks = 0;  // Delay before starting movement (in ticks)
 
     public enum GatherState {
         IDLE,              // Not gathering
@@ -287,5 +298,29 @@ public class Unit {
 
     public void setGatherTickCounter(int gatherTickCounter) {
         this.gatherTickCounter = gatherTickCounter;
+    }
+
+    public int getBlockedTicks() {
+        return blockedTicks;
+    }
+
+    public void setBlockedTicks(int blockedTicks) {
+        this.blockedTicks = blockedTicks;
+    }
+
+    public Integer getAssignedSlotIndex() {
+        return assignedSlotIndex;
+    }
+
+    public void setAssignedSlotIndex(Integer assignedSlotIndex) {
+        this.assignedSlotIndex = assignedSlotIndex;
+    }
+
+    public int getMovementDelayTicks() {
+        return movementDelayTicks;
+    }
+
+    public void setMovementDelayTicks(int movementDelayTicks) {
+        this.movementDelayTicks = movementDelayTicks;
     }
 }

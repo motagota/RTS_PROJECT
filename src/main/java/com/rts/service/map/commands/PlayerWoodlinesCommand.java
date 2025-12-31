@@ -35,12 +35,6 @@ public class PlayerWoodlinesCommand implements RMSCommand {
         boolean setTightGrouping = getParameter(parameters, "set_tight_grouping", 1) != 0;
         boolean setLooseGrouping = getParameter(parameters, "set_loose_grouping", 0) != 0;
 
-        System.out.println("Creating player woodlines:");
-        System.out.println("  Distance to players: " + minDistanceToPlayers + "-" + maxDistanceToPlayers);
-        System.out.println("  Trees per woodline: " + numberOfObjects);
-        System.out.println("  Tight grouping: " + setTightGrouping);
-        System.out.println("  Loose grouping: " + setLooseGrouping);
-
         // Place woodline for each player
         for (PlayerLand playerLand : context.getPlayerLands()) {
             placePlayerWoodline(context, playerLand, minDistanceToPlayers, maxDistanceToPlayers,
@@ -84,12 +78,7 @@ public class PlayerWoodlinesCommand implements RMSCommand {
                 }
 
                 placed = true;
-                System.out.println("  Player " + playerLand.getPlayerNumber() + ": placed woodline at (" + centerX + "," + centerY + ")");
             }
-        }
-
-        if (!placed) {
-            System.out.println("  Player " + playerLand.getPlayerNumber() + ": Warning - Could not place woodline");
         }
     }
 

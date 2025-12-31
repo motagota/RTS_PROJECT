@@ -120,7 +120,8 @@ public class PathfindingService {
     }
 
     /**
-     * Find a suitable position near the target that is unoccupied
+     * Find a suitable position near the target that is unoccupied and reachable
+     * Prioritizes positions that are adjacent (radius 1) for resource gathering
      */
     public PathNode findNearestFreePosition(int targetX, int targetY,
                                              int mapWidth, int mapHeight,
@@ -128,13 +129,45 @@ public class PathfindingService {
                                              List<Building> buildings,
                                              List<Unit> units) {
 
-        // Check if target is already free
-        if (!isBlocked(targetX, targetY, terrainData, buildings, units, mapWidth)) {
+        // Check if target is already free and has walkable neighbors (not trapped)
+        if (!isBlockedIncludingMovingUnits(targetX, targetY, terrainData, buildings, units, mapWidth) &&
+            hasWalkableNeighbor(targetX, targetY, terrainData, buildings, mapWidth, mapHeight)) {
             return new PathNode(targetX, targetY);
         }
 
-        // Search in expanding circles around the target
-        for (int radius = 1; radius <= 10; radius++) {
+        // First priority: Check immediately adjacent positions (8 surrounding tiles)
+        // This ensures units gather from adjacent tiles
+        int[][] adjacentOffsets = {
+            {0, -1},  // North
+            {1, 0},   // East
+            {0, 1},   // South
+            {-1, 0},  // West
+            {1, -1},  // NE
+            {1, 1},   // SE
+            {-1, 1},  // SW
+            {-1, -1}  // NW
+        };
+
+        for (int[] offset : adjacentOffsets) {
+            int checkX = targetX + offset[0];
+            int checkY = targetY + offset[1];
+
+            if (checkX < 0 || checkX >= mapWidth || checkY < 0 || checkY >= mapHeight) {
+                continue;
+            }
+
+            // For free positions, we need to check ALL units (including moving ones)
+            // to ensure the spot is truly available for gathering
+            // Also verify the position has at least one walkable neighbor (not trapped)
+            if (!isBlockedIncludingMovingUnits(checkX, checkY, terrainData, buildings, units, mapWidth) &&
+                hasWalkableNeighbor(checkX, checkY, terrainData, buildings, mapWidth, mapHeight)) {
+                return new PathNode(checkX, checkY);
+            }
+        }
+
+        // Second priority: Search in expanding circles if no adjacent position is free
+        // This handles cases where all adjacent tiles are occupied
+        for (int radius = 2; radius <= 5; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dy = -radius; dy <= radius; dy++) {
                     // Only check positions on the edge of the circle
@@ -147,7 +180,8 @@ public class PathfindingService {
                         continue;
                     }
 
-                    if (!isBlocked(checkX, checkY, terrainData, buildings, units, mapWidth)) {
+                    if (!isBlockedIncludingMovingUnits(checkX, checkY, terrainData, buildings, units, mapWidth) &&
+                        hasWalkableNeighbor(checkX, checkY, terrainData, buildings, mapWidth, mapHeight)) {
                         return new PathNode(checkX, checkY);
                     }
                 }
@@ -158,7 +192,116 @@ public class PathfindingService {
         return null;
     }
 
-    private boolean isBlocked(int x, int y, byte[] terrainData, List<Building> buildings, List<Unit> units, int mapWidth) {
+    /**
+     * Check if a position has at least one walkable neighbor
+     * This ensures the position is not completely trapped/surrounded
+     */
+    private boolean hasWalkableNeighbor(int x, int y, byte[] terrainData,
+                                         List<Building> buildings, int mapWidth, int mapHeight) {
+        // Check all 8 directions
+        int[][] directions = {
+            {0, -1}, {1, 0}, {0, 1}, {-1, 0},  // Cardinal
+            {1, -1}, {1, 1}, {-1, 1}, {-1, -1} // Diagonals
+        };
+
+        for (int[] dir : directions) {
+            int nx = x + dir[0];
+            int ny = y + dir[1];
+
+            // Check bounds
+            if (nx < 0 || nx >= mapWidth || ny < 0 || ny >= mapHeight) {
+                continue;
+            }
+
+            // Check if this neighbor is walkable (ignore units for this check)
+            if (!isTerrainOrBuildingBlocked(nx, ny, terrainData, buildings, mapWidth)) {
+                return true; // Found at least one walkable neighbor
+            }
+        }
+
+        return false; // No walkable neighbors - position is trapped
+    }
+
+    /**
+     * Check if a position is blocked by terrain or buildings only (not units)
+     * Used for checking basic walkability
+     */
+    private boolean isTerrainOrBuildingBlocked(int x, int y, byte[] terrainData,
+                                                 List<Building> buildings, int mapWidth) {
+        // Check terrain
+        if (terrainData != null) {
+            int index = y * mapWidth + x;
+            if (index >= 0 && index < terrainData.length) {
+                byte terrain = terrainData[index];
+                // Not walkable: WATER (4), LAVA (3), TREE (11), STONE (5), GOLD (7), FOOD/BERRIES (8)
+                if (terrain == 3 || terrain == 4 || terrain == 11 || terrain == 5 || terrain == 7 || terrain == 8) {
+                    return true;
+                }
+            }
+        }
+
+        // Check buildings
+        if (buildings != null) {
+            for (Building building : buildings) {
+                int bx = building.getX();
+                int by = building.getY();
+                int bw = building.getWidth();
+                int bh = building.getHeight();
+
+                if (x >= bx && x < bx + bw && y >= by && y < by + bh) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if a position is blocked by terrain, buildings, or ANY units (including moving ones)
+     * Used for finding truly free positions for gathering
+     */
+    private boolean isBlockedIncludingMovingUnits(int x, int y, byte[] terrainData,
+                                                    List<Building> buildings, List<Unit> units, int mapWidth) {
+        // Check terrain
+        if (terrainData != null) {
+            int index = y * mapWidth + x;
+            if (index >= 0 && index < terrainData.length) {
+                byte terrain = terrainData[index];
+                // Not walkable: WATER (4), LAVA (3), TREE (11), STONE (5), GOLD (7), FOOD/BERRIES (8)
+                if (terrain == 3 || terrain == 4 || terrain == 11 || terrain == 5 || terrain == 7 || terrain == 8) {
+                    return true;
+                }
+            }
+        }
+
+        // Check buildings
+        if (buildings != null) {
+            for (Building building : buildings) {
+                int bx = building.getX();
+                int by = building.getY();
+                int bw = building.getWidth();
+                int bh = building.getHeight();
+
+                if (x >= bx && x < bx + bw && y >= by && y < by + bh) {
+                    return true;
+                }
+            }
+        }
+
+        // Check ALL units (including moving ones) to ensure position is truly free
+        if (units != null) {
+            for (Unit unit : units) {
+                if (unit.getX() == x && unit.getY() == y) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public boolean isBlocked(int x, int y, byte[] terrainData, List<Building> buildings, List<Unit> units, int mapWidth) {
         // Check terrain
         if (terrainData != null) {
             int index = y * mapWidth + x;
@@ -166,8 +309,8 @@ public class PathfindingService {
                 byte terrain = terrainData[index];
                 // Terrain types from map-renderer.js:
                 // 0=GRASS, 1=DESERT, 2=SNOW, 3=LAVA, 4=WATER, 5=STONE, 7=GOLD, 8=FOOD, 9=HUNT, 10=FOREST, 11=TREE
-                // Not walkable: WATER (4), LAVA (3), TREE (11)
-                if (terrain == 3 || terrain == 4 || terrain == 11) {
+                // Not walkable: WATER (4), LAVA (3), TREE (11), STONE (5), GOLD (7), FOOD/BERRIES (8)
+                if (terrain == 3 || terrain == 4 || terrain == 11 || terrain == 5 || terrain == 7 || terrain == 8) {
                     return true;
                 }
             }

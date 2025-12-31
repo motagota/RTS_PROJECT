@@ -27,10 +27,13 @@ class GameController {
 
         // UI Components
         this.resourceDisplay = new ResourceDisplay(this.eventBus);
+        this.villagerStatsPanel = new VillagerStatsPanel(this.eventBus);
         this.unitInfoPanel = new UnitInfoPanel(this.gameState, this.eventBus);
         this.buildingInfoPanel = new BuildingInfoPanel(this.gameState, this.eventBus);
         this.productionPanel = new ProductionPanel(this.gameState, this.eventBus, this.networkManager);
+        this.buildQueuePanel = new BuildQueuePanel(this.gameState, this.eventBus);
         this.resourceNodeInfoPanel = new ResourceNodeInfoPanel(this.gameState, this.eventBus);
+        this.gatherSlotDebugPanel = new GatherSlotDebugPanel(this.gameState, this.eventBus);
 
         // Resource nodes cache
         this.resourceNodesMap = new Map(); // Map of "x,y" -> ResourceNode
@@ -50,6 +53,7 @@ class GameController {
         this.eventBus.on('network:productionQueueUpdate', () => this.loadProductionQueue());
         this.eventBus.on('network:mapUpdate', () => this.reloadMap());
         this.eventBus.on('network:unitsUpdate', (units) => this.updateUnits(units));
+        this.eventBus.on('network:resourceDepleted', (data) => this.handleResourceDepleted(data));
         this.eventBus.on('network:playerStatus', (data) => {
             this.gameState.updatePlayerStatus(data.playerName, data.status);
         });
@@ -92,6 +96,9 @@ class GameController {
             const mapRenderer = new MapRenderer(canvas);
             this.gameState.setMapRenderer(mapRenderer);
 
+            // Pass mapRenderer to debug panel
+            this.gatherSlotDebugPanel.mapRenderer = mapRenderer;
+
             // Load map data
             await mapRenderer.loadMap(this.gameState.gameId);
 
@@ -106,6 +113,9 @@ class GameController {
 
             // Start heartbeat
             this.startHeartbeat();
+
+            // Start production queue polling
+            this.startQueuePolling();
 
             // Update player status
             await this.networkManager.updatePlayerStatus('READY');
@@ -205,6 +215,17 @@ class GameController {
                 this.selectionManager.selectBuilding(clickedBuilding);
                 this.selectionManager.deselectAllUnits();
             } else {
+                // Check if a resource node was clicked (for debug panel)
+                const clickedResource = this.getResourceNodeAt(tileX, tileY);
+                console.log('Clicked at (' + tileX + ',' + tileY + '), resource found:', clickedResource);
+                if (clickedResource) {
+                    console.log('Emitting resourceNode:clicked event with:', clickedResource);
+                    this.eventBus.emit('resourceNode:clicked', clickedResource);
+                } else {
+                    // Emit map clicked event
+                    this.eventBus.emit('map:clicked', { tileX, tileY });
+                }
+
                 // Clicked on empty space
                 if (!shiftKey) {
                     this.selectionManager.deselectAllUnits();
@@ -300,6 +321,7 @@ class GameController {
         if (tileX === null || tileY === null) {
             mapRenderer.setHoveredUnit(null);
             this.gameState.setHoveredBuilding(null);
+            mapRenderer.setHoveredResource(null);
             this.eventBus.emit('resourceNode:hovered', null);
             this.render();
             return;
@@ -309,6 +331,9 @@ class GameController {
         const building = this.selectionManager.findBuildingAtPosition(tileX, tileY);
         const resourceNode = this.getResourceNodeAt(tileX, tileY);
 
+        // Update hovered resource in map renderer
+        mapRenderer.setHoveredResource(resourceNode);
+
         // Emit resource node hover event if hovering over a resource
         if (resourceNode) {
             this.eventBus.emit('resourceNode:hovered', resourceNode);
@@ -316,7 +341,9 @@ class GameController {
             this.eventBus.emit('resourceNode:hovered', null);
         }
 
-        if (unit !== mapRenderer.hoveredUnit || building !== this.gameState.getHoveredBuilding()) {
+        if (unit !== mapRenderer.hoveredUnit ||
+            building !== this.gameState.getHoveredBuilding() ||
+            resourceNode !== mapRenderer.getHoveredResource()) {
             mapRenderer.setHoveredUnit(unit);
             this.gameState.setHoveredBuilding(building);
             this.render();
@@ -400,7 +427,28 @@ class GameController {
         if (!building) return;
 
         try {
-            await this.networkManager.setRallyPoint(building.id, tileX, tileY);
+            await this.networkManager.setRallyPoint(building, tileX, tileY);
+
+            // Update the building object directly instead of reloading the entire map
+            building.rallyPointX = tileX;
+            building.rallyPointY = tileY;
+
+            // Update the building in the map data
+            const mapRenderer = this.gameState.getMapRenderer();
+            if (mapRenderer && mapRenderer.mapData && mapRenderer.mapData.buildings) {
+                const buildings = Array.isArray(mapRenderer.mapData.buildings)
+                    ? mapRenderer.mapData.buildings
+                    : JSON.parse(mapRenderer.mapData.buildings);
+
+                const buildingInMap = buildings.find(b => b.x === building.x && b.y === building.y && b.type === building.type);
+                if (buildingInMap) {
+                    buildingInMap.rallyPointX = tileX;
+                    buildingInMap.rallyPointY = tileY;
+                }
+            }
+
+            // Trigger UI update by re-emitting the selection event
+            this.eventBus.emit('selection:buildingChanged', building);
 
             // Exit rally point mode
             this.gameState.setRallyPointMode(false);
@@ -421,6 +469,18 @@ class GameController {
         const mapRenderer = this.gameState.getMapRenderer();
         if (mapRenderer) {
             await mapRenderer.loadMap(this.gameState.gameId);
+        }
+    }
+
+    /**
+     * Handle resource node depletion
+     * Removes the resource visually from the map
+     */
+    handleResourceDepleted(data) {
+        console.log(`Resource depleted at (${data.x}, ${data.y}) - nodeId: ${data.nodeId}`);
+        const mapRenderer = this.gameState.getMapRenderer();
+        if (mapRenderer) {
+            mapRenderer.removeResource(data.x, data.y);
         }
     }
 
@@ -475,6 +535,20 @@ class GameController {
             this.networkManager.sendHeartbeat();
         }, 5000);
         this.gameState.setInterval('heartbeat', intervalId);
+    }
+
+    /**
+     * Start production queue polling
+     */
+    startQueuePolling() {
+        // Load queue immediately
+        this.loadProductionQueue();
+
+        // Poll every 1 second to update progress
+        const intervalId = setInterval(() => {
+            this.loadProductionQueue();
+        }, 1000);
+        this.gameState.setInterval('queuePolling', intervalId);
     }
 
     /**

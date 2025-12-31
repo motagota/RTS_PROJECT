@@ -5,9 +5,11 @@ import com.rts.model.Game;
 import com.rts.model.GamePlayer;
 import com.rts.model.ProductionQueueItem;
 import com.rts.model.ResourceNode;
+import com.rts.model.Unit;
 import com.rts.service.GameService;
 import com.rts.service.GameServiceExtensions;
 import com.rts.service.HeartbeatOutcome;
+import com.rts.service.MapService;
 import com.rts.service.ResourceNodeService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,16 +37,19 @@ public class GameController {
     private final GameServiceExtensions gameServiceExt;
     private final SimpMessagingTemplate messagingTemplate;
     private final ResourceNodeService resourceNodeService;
+    private final MapService mapService;
 
     @Autowired
     public GameController(GameService gameService,
                           GameServiceExtensions gameServiceExt,
                           SimpMessagingTemplate messagingTemplate,
-                          ResourceNodeService resourceNodeService) {
+                          ResourceNodeService resourceNodeService,
+                          MapService mapService) {
         this.gameService = gameService;
         this.gameServiceExt = gameServiceExt;
         this.messagingTemplate = messagingTemplate;
         this.resourceNodeService = resourceNodeService;
+        this.mapService = mapService;
     }
 
     /**
@@ -181,7 +186,29 @@ public class GameController {
     }
 
     /**
-     * Set rally point for a building
+     * Set rally point for a building (by coordinates)
+     */
+    @PutMapping("/{gameId}/buildings/rally-point")
+    public ResponseEntity<Map<String, String>> setRallyPointByCoords(
+            @PathVariable Long gameId,
+            @Valid @RequestBody SetRallyPointByCoordinatesRequest request) {
+        try {
+            gameService.setRallyPoint(
+                    gameId,
+                    request.getBuildingX(),
+                    request.getBuildingY(),
+                    request.getBuildingType(),
+                    request.getRallyX(),
+                    request.getRallyY()
+            );
+            return ResponseEntity.ok(Map.of("status", "rally point set"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Set rally point for a building (by ID - deprecated)
      */
     @PutMapping("/{gameId}/buildings/{buildingId}/rally-point")
     public ResponseEntity<Map<String, String>> setRallyPoint(
@@ -210,10 +237,6 @@ public class GameController {
     public ResponseEntity<Map<String, String>> gatherResource(
             @PathVariable Long gameId,
             @Valid @RequestBody GatherResourceRequest request) {
-        System.out.println("=== GATHER ENDPOINT CALLED ===");
-        System.out.println("Game ID: " + gameId);
-        System.out.println("Unit IDs: " + request.getUnitIds());
-        System.out.println("Resource at: (" + request.getResourceX() + "," + request.getResourceY() + ")");
         gameServiceExt.gatherResource(gameId, request.getUnitIds(), request.getResourceX(), request.getResourceY());
         return ResponseEntity.ok(Map.of("status", "units gathering queued"));
     }
@@ -232,9 +255,7 @@ public class GameController {
      */
     @GetMapping("/{gameId}/resources")
     public ResponseEntity<List<ResourceNodeDTO>> getResourceNodes(@PathVariable Long gameId) {
-        System.out.println("GET /api/games/" + gameId + "/resources called");
         List<ResourceNode> nodes = resourceNodeService.getResourceNodes(gameId);
-        System.out.println("Found " + nodes.size() + " resource nodes for game " + gameId);
         List<ResourceNodeDTO> dtos = nodes.stream()
                 .map(ResourceNodeDTO::new)
                 .toList();
@@ -251,6 +272,22 @@ public class GameController {
             @PathVariable int y) {
         return resourceNodeService.getResourceNodeAt(gameId, x, y)
                 .map(node -> ResponseEntity.ok(new ResourceNodeDTO(node)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Get gather slot debug information for a resource node
+     * Used for debugging and visualization
+     */
+    @GetMapping("/{gameId}/resources/{resourceId}/slots")
+    public ResponseEntity<GatherSlotDebugDTO> getGatherSlots(
+            @PathVariable Long gameId,
+            @PathVariable Long resourceId) {
+        // Get all units from the map
+        List<Unit> allUnits = mapService.getUnitsForGame(gameId);
+
+        return resourceNodeService.getGatherSlotDebugInfo(resourceId, gameId, allUnits)
+                .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 }

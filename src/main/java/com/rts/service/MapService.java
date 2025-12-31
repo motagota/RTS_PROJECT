@@ -98,8 +98,6 @@ public class MapService {
             PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
             Resource[] resources = resolver.getResources("classpath:maps/*.rms");
 
-            System.out.println("Loading/updating " + resources.length + " map templates from RMS files...");
-
             for (Resource resource : resources) {
                 try {
                     String rmsScript = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -121,12 +119,10 @@ public class MapService {
                     if (existingTemplate.isPresent()) {
                         // Update existing template
                         template = existingTemplate.get();
-                        System.out.println("  Updating map template: " + templateName);
                     } else {
                         // Create new template
                         template = new MapTemplate();
                         template.setName(templateName);
-                        System.out.println("  Creating map template: " + templateName);
                     }
 
                     // Update template fields
@@ -146,8 +142,6 @@ public class MapService {
                     e.printStackTrace();
                 }
             }
-
-            System.out.println("Successfully loaded/updated " + mapTemplateRepository.count() + " map templates");
 
         } catch (IOException e) {
             System.err.println("Failed to load map templates from resources: " + e.getMessage());
@@ -234,7 +228,6 @@ public class MapService {
 
         // Parse RMS script
         List<AstNode> ast = rmsParser.parse(rmsScript);
-        System.out.println("Parsed " + ast.size() + " RMS commands for template: " + templateName);
 
         // Generate map using RMS executor (no WebSocket streaming)
         long seed = System.currentTimeMillis();
@@ -247,8 +240,6 @@ public class MapService {
                 false, // Not step-by-step
                 playerCount // Pass the actual player count from the lobby
         );
-
-        System.out.println("Generated map grid: " + mapSize + "x" + mapSize);
 
         // Create GeneratedMap entity
         GeneratedMap generatedMap = new GeneratedMap();
@@ -263,18 +254,15 @@ public class MapService {
         try {
             byte[] terrainData = serializeAndCompressMapGrid(grid);
             generatedMap.setTerrainData(terrainData);
-            System.out.println("Compressed map data size: " + terrainData.length + " bytes");
 
             // Extract and serialize buildings
             String buildingsJson = serializeBuildingsToJson(grid.getBuildings());
             generatedMap.setBuildings(buildingsJson);
-            System.out.println("Serialized " + grid.getBuildings().size() + " buildings");
 
             // Spawn initial villagers for each player near their headquarters
             List<Unit> initialUnits = spawnInitialVillagers(grid.getBuildings(), playerCount);
             String unitsJson = objectMapper.writeValueAsString(initialUnits);
             generatedMap.setUnits(unitsJson);
-            System.out.println("Spawned " + initialUnits.size() + " initial villagers");
 
             generatedMap.setPlayerStarts("[]"); // TODO: Extract player starts from grid
         } catch (Exception e) {
@@ -380,9 +368,6 @@ public class MapService {
                     Unit villager = new Unit(spawnX, spawnY, Unit.UnitType.VILLAGER, playerNum);
                     villagers.add(villager);
                 }
-
-                System.out.println("Spawned " + villagersPerPlayer + " villagers for player " + playerNum
-                                 + " near HQ at (" + hqX + "," + hqY + ")");
             } else {
                 System.err.println("Warning: No headquarters found for player " + playerNum);
             }
@@ -470,7 +455,6 @@ public class MapService {
                 RMSCommand command = rmsCommands.get(commandName);
 
                 if (command != null) {
-                    System.out.println("Executing RMS command: " + commandName);
                     command.execute(context, commandData);
                 } else {
                     System.err.println("Unknown RMS command: " + commandName);
@@ -509,23 +493,43 @@ public class MapService {
         return generatedMapRepository.findByGameId(gameId);
     }
 
+    /**
+     * Get all units for a game
+     */
+    public List<Unit> getUnitsForGame(Long gameId) {
+        try {
+            Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
+            if (mapOpt.isEmpty()) {
+                return new ArrayList<>();
+            }
+
+            GeneratedMap generatedMap = mapOpt.get();
+            String unitsJson = generatedMap.getUnits();
+
+            if (unitsJson == null || unitsJson.isEmpty() || unitsJson.equals("[]")) {
+                return new ArrayList<>();
+            }
+
+            return objectMapper.readValue(
+                    unitsJson,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, Unit.class)
+            );
+        } catch (Exception e) {
+            System.err.println("Error getting units for game: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
     public void spawnUnit(Long gameId, int x, int y, com.rts.model.Unit.UnitType unitType, int playerNumber)  {
 
         try {
-            System.out.println(">>> MapService.spawnUnit: ENTERED - gameId=" + gameId + ", pos=(" + x + "," + y + "), type=" + unitType + ", player=" + playerNumber);
-            System.out.flush();
-
             Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
-            System.out.println(">>> MapService.spawnUnit: Got map optional: " + (mapOpt.isPresent() ? "present" : "empty"));
-            System.out.flush();
 
             if (mapOpt.isEmpty()) {
                 throw new IllegalStateException("Map not found for game " + gameId);
             }
 
             GeneratedMap generatedMap = mapOpt.get();
-            System.out.println(">>> MapService.spawnUnit: Retrieved GeneratedMap");
-            System.out.flush();
 
             // Get existing units or create empty list
             String unitsJson = generatedMap.getUnits();
@@ -548,11 +552,9 @@ public class MapService {
             String updatedUnitsJson = serializeUnitsToJson(units);
             generatedMap.setUnits(updatedUnitsJson);
             generatedMapRepository.save(generatedMap);
-
-            System.out.println("Spawned " + unitType + " at (" + x + "," + y + ") for player " + playerNumber + ". Total units: " + units.size());
         }
         catch (Exception e) {
-            System.out.println(">>> MapService.spawnUnit: ERROR - " + e.getMessage());
+            System.err.println("MapService.spawnUnit: ERROR - " + e.getMessage());
         }
     }
 
@@ -601,6 +603,102 @@ public class MapService {
     }
 
     /**
+     * Create a simple byte array for pathfinding from the compressed JSON terrain data.
+     * Each byte represents the terrain code at that position.
+     * Cells with resource objects (GOLD, STONE, BERRIES, TREE) are marked as blocked terrain.
+     *
+     * @param generatedMap The map to extract terrain data from
+     * @return byte array where terrainData[y * width + x] = terrain code (0-11)
+     */
+    public byte[] createPathfindingTerrainArray(GeneratedMap generatedMap) {
+        try {
+            // Decompress and parse the terrain JSON
+            String terrainJson = decompressAndDeserializeMapGrid(generatedMap.getTerrainData());
+            com.fasterxml.jackson.databind.JsonNode mapNode = objectMapper.readTree(terrainJson);
+            com.fasterxml.jackson.databind.JsonNode cellsNode = mapNode.get("cells");
+
+            int width = generatedMap.getWidth();
+            int height = generatedMap.getHeight();
+
+            // Initialize array with default terrain (GRASS = 0)
+            byte[] terrainArray = new byte[width * height];
+
+            if (cellsNode != null && cellsNode.isArray()) {
+                // Parse cells
+                for (com.fasterxml.jackson.databind.JsonNode cellNode : cellsNode) {
+                    int x = cellNode.get("x").asInt();
+                    int y = cellNode.get("y").asInt();
+
+                    int index = y * width + x;
+                    if (index < 0 || index >= terrainArray.length) continue;
+
+                    // Check if cell has a resource object
+                    com.fasterxml.jackson.databind.JsonNode objectNode = cellNode.get("object");
+                    if (objectNode != null && !objectNode.isNull()) {
+                        String object = objectNode.asText();
+                        // Map resource objects to terrain codes that are blocked in pathfinding
+                        byte resourceTerrain = mapObjectToTerrainCode(object);
+                        if (resourceTerrain != -1) {
+                            terrainArray[index] = resourceTerrain;
+                            continue;
+                        }
+                    }
+
+                    // No resource object, use the cell's terrain
+                    com.fasterxml.jackson.databind.JsonNode terrainNode = cellNode.get("terrain");
+                    if (terrainNode != null && !terrainNode.isNull()) {
+                        String terrain = terrainNode.asText();
+                        terrainArray[index] = mapTerrainStringToCode(terrain);
+                    }
+                }
+            }
+
+            return terrainArray;
+
+        } catch (Exception e) {
+            System.err.println("Error creating pathfinding terrain array: " + e.getMessage());
+            e.printStackTrace();
+            // Return empty array on error
+            return new byte[generatedMap.getWidth() * generatedMap.getHeight()];
+        }
+    }
+
+    /**
+     * Map resource object names to terrain codes for pathfinding
+     * Returns -1 if not a resource object
+     */
+    private byte mapObjectToTerrainCode(String object) {
+        return switch (object.toUpperCase()) {
+            case "GOLD" -> 7;           // GOLD terrain code
+            case "STONE" -> 5;          // STONE terrain code
+            case "BERRIES", "FORAGE", "BERRY_BUSH" -> 8;  // FOOD terrain code
+            case "TREE" -> 11;          // TREE terrain code
+            default -> -1;              // Not a blocking resource
+        };
+    }
+
+    /**
+     * Map terrain string names to terrain codes
+     */
+    private byte mapTerrainStringToCode(String terrain) {
+        return switch (terrain.toUpperCase()) {
+            case "GRASS" -> 0;
+            case "DESERT" -> 1;
+            case "SNOW" -> 2;
+            case "LAVA" -> 3;
+            case "WATER" -> 4;
+            case "STONE" -> 5;
+            case "WOOD", "DIRT" -> 6;   // DEPRECATED
+            case "GOLD" -> 7;
+            case "FOOD", "BERRIES" -> 8;
+            case "HUNT" -> 9;
+            case "FOREST" -> 10;
+            case "TREE" -> 11;
+            default -> 0;  // Default to GRASS
+        };
+    }
+
+    /**
      * Set a unit's destination for pathfinding by unit ID
      */
     public void setUnitDestinationById(Long gameId, int unitId, int targetX, int targetY) {
@@ -635,8 +733,8 @@ public class MapService {
                 );
             }
 
-            // Get terrain data
-            byte[] terrainData = generatedMap.getTerrainData();
+            // Get terrain data for pathfinding (converts JSON to simple byte array)
+            byte[] terrainData = createPathfindingTerrainArray(generatedMap);
 
             // Find the unit by ID
             com.rts.model.Unit targetUnit = null;
@@ -650,6 +748,13 @@ public class MapService {
             if (targetUnit == null) {
                 System.err.println("Unit not found with ID: " + unitId);
                 return;
+            }
+
+            // Release gather slot if unit is currently gathering
+            if (targetUnit.getGatherState() != Unit.GatherState.IDLE) {
+                resourceGatheringService.releaseGatherSlot(targetUnit);
+                targetUnit.setGatherState(Unit.GatherState.IDLE);
+                targetUnit.setTargetResourceNodeId(null);
             }
 
             // Set destination using movement service
@@ -667,8 +772,6 @@ public class MapService {
             // Immediately broadcast the updated units so clients see the movement start
             broadcastUnitUpdate(gameId, units);
 
-            System.out.println("Set unit ID " + unitId + " to move to (" + targetX + "," + targetY + ")");
-
         } catch (Exception e) {
             System.err.println("Error setting unit destination by ID: " + e.getMessage());
             e.printStackTrace();
@@ -679,15 +782,11 @@ public class MapService {
      * Command units to gather from a resource node
      */
     public void commandGatherResource(Long gameId, List<Integer> unitIds, int resourceX, int resourceY) {
-        System.out.println("MapService.commandGatherResource called");
-        System.out.println("  Game ID: " + gameId);
-        System.out.println("  Unit IDs: " + unitIds);
-        System.out.println("  Resource at: (" + resourceX + "," + resourceY + ")");
 
         try {
             Optional<GeneratedMap> mapOpt = getGeneratedMapByGameId(gameId);
             if (mapOpt.isEmpty()) {
-                System.err.println("Map not found for game " + gameId);
+
                 return;
             }
 
@@ -696,7 +795,6 @@ public class MapService {
             // Get units
             String unitsJson = generatedMap.getUnits();
             if (unitsJson == null || unitsJson.isEmpty()) {
-                System.err.println("No units found on map");
                 return;
             }
 
@@ -715,8 +813,8 @@ public class MapService {
                 );
             }
 
-            // Get terrain data
-            byte[] terrainData = generatedMap.getTerrainData();
+            // Get terrain data for pathfinding (converts JSON to simple byte array)
+            byte[] terrainData = createPathfindingTerrainArray(generatedMap);
 
             // Find units by IDs
             List<Unit> targetUnits = new ArrayList<>();
@@ -730,7 +828,6 @@ public class MapService {
             }
 
             if (targetUnits.isEmpty()) {
-                System.err.println("No units found with the given IDs");
                 return;
             }
 
@@ -751,11 +848,9 @@ public class MapService {
             unitsJson = objectMapper.writeValueAsString(units);
             generatedMap.setUnits(unitsJson);
             saveGeneratedMap(generatedMap);
-
-            // Broadcast the updated units
+            
             broadcastUnitUpdate(gameId, units);
 
-            System.out.println("Commanded " + targetUnits.size() + " units to gather from resource at (" + resourceX + "," + resourceY + ")");
 
         } catch (Exception e) {
             System.err.println("Error commanding resource gathering: " + e.getMessage());
@@ -798,8 +893,8 @@ public class MapService {
                 );
             }
 
-            // Get terrain data
-            byte[] terrainData = generatedMap.getTerrainData();
+            // Get terrain data for pathfinding (converts JSON to simple byte array)
+            byte[] terrainData = createPathfindingTerrainArray(generatedMap);
 
             // Find the unit at the specified position
             com.rts.model.Unit targetUnit = null;
@@ -829,8 +924,6 @@ public class MapService {
 
             // Immediately broadcast the updated units so clients see the movement start
             broadcastUnitUpdate(gameId, units);
-
-            System.out.println("Set unit at (" + unitX + "," + unitY + ") to move to (" + targetX + "," + targetY + ")");
 
         } catch (Exception e) {
             System.err.println("Error setting unit destination: " + e.getMessage());
@@ -888,8 +981,8 @@ public class MapService {
                 );
             }
 
-            // Get terrain data
-            byte[] terrainData = generatedMap.getTerrainData();
+            // Get terrain data for pathfinding (converts JSON to simple byte array)
+            byte[] terrainData = createPathfindingTerrainArray(generatedMap);
 
             // Process movement
             movementService.processUnitMovement(
@@ -923,17 +1016,6 @@ public class MapService {
      */
     private void broadcastUnitUpdate(Long gameId, java.util.List<com.rts.model.Unit> units) {
         try {
-            // Debug: Log unit state before broadcasting
-            for (com.rts.model.Unit u : units) {
-                if (u.getTargetX() != null && u.getTargetY() != null) {
-                    System.out.println("Broadcasting unit " + u.getId() + ": pos=(" + u.getX() + "," + u.getY() +
-                        "), target=(" + u.getTargetX() + "," + u.getTargetY() +
-                        "), gatherState=" + u.getGatherState() +
-                        ", carrying=" + u.getCarryingAmount() + "/" + u.getCarryCapacity() + " " + u.getCarryingResourceType());
-                    break;
-                }
-            }
-
             // Create update message
             java.util.Map<String, Object> update = new java.util.HashMap<>();
             update.put("type", "UNITS_UPDATE");

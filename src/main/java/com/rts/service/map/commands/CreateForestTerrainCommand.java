@@ -31,13 +31,6 @@ public class CreateForestTerrainCommand implements RMSCommand {
         int minDistanceToPlayers = getParameter(parameters, "min_distance_to_players", 0);
         int avoidPlayerStartAreas = getParameter(parameters, "avoid_player_start_areas", 5);
 
-        System.out.println("Creating forest terrain:");
-        System.out.println("  Land percent: " + landPercent + "%");
-        System.out.println("  Number of groups: " + numberOfGroups);
-        System.out.println("  Base size: " + baseSize);
-        System.out.println("  Border fuzziness: " + borderFuzziness);
-        System.out.println("  Min distance to players: " + minDistanceToPlayers);
-
         // Calculate total tiles to convert to forest
         int totalTiles = context.getWidth() * context.getHeight();
         int targetForestTiles = (totalTiles * landPercent) / 100;
@@ -78,11 +71,7 @@ public class CreateForestTerrainCommand implements RMSCommand {
             // Create forest patch using blob growth algorithm
             int patchTiles = createForestPatch(context, centerX, centerY, tilesPerGroup, baseSize, borderFuzziness, random);
             placedForestTiles += patchTiles;
-
-            System.out.println("  Created forest patch " + (i + 1) + " at (" + centerX + "," + centerY + ") with " + patchTiles + " tiles");
         }
-
-        System.out.println("Total forest terrain tiles placed: " + placedForestTiles + " / " + targetForestTiles);
     }
 
     @Override
