@@ -38,9 +38,7 @@ public class Game {
     private Integer maxPlayers;
 
     @Column
-    private String gameSettings; // JSON string for game configuration
-
-    // Getters and Setters
+    private String gameSettings; 
 
     public Long getId() {
         return id;

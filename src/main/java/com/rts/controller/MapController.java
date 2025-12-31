@@ -1,6 +1,5 @@
 package com.rts.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rts.model.GeneratedMap;
 import com.rts.model.MapTemplate;
 import com.rts.service.MapService;

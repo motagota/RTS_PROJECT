@@ -35,7 +35,6 @@ public class AstNode {
             attributes = new HashMap<>();
         }
 
-        // Safety check to prevent null keys
         if (key == null) {
             System.err.println("WARNING: Attempted to add null key to AstNode of type: " + type);
             System.err.println("Stack trace:");

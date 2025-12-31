@@ -28,16 +28,16 @@ public class GeneratedMap {
 
     @Lob
     @Column(columnDefinition = "BLOB")
-    private byte[] terrainData; // Compressed binary representation of the map terrain
+    private byte[] terrainData;
+    
+    @Column(length = 10000)
+    private String playerStarts; 
 
     @Column(length = 10000)
-    private String playerStarts; // JSON array of player starting positions
-
-    @Column(length = 10000)
-    private String buildings; // JSON array of buildings
+    private String buildings; 
 
     @Column(length = 50000)
-    private String units; // JSON array of units
+    private String units; 
 
     @Column(nullable = false)
     private LocalDateTime generatedAt;

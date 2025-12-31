@@ -38,7 +38,6 @@ public class StreamingMapController {
         log.info("Initiating streaming map generation: sessionId={}, mapSize={}, seed={}",
                 sessionId, request.getMapSize(), request.getSeed());
 
-        // Start generation asynchronously
         asyncMapGenerationService.generateMapAsync(sessionId, request);
 
         return ResponseEntity.ok(Map.of(

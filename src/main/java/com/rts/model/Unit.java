@@ -57,7 +57,7 @@ public class Unit {
         }
     }
 
-    private static int nextId = 1;  // Static counter for generating unique IDs
+    private static int nextId = 1;  
 
     private int id;  // Unique identifier for this unit
     private int x;
@@ -68,47 +68,43 @@ public class Unit {
     private int maxHealth;
 
     // Movement-related fields
-    private Integer targetX;  // Destination X coordinate
-    private Integer targetY;  // Destination Y coordinate
+    private Integer targetX;  
+    private Integer targetY;  
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient java.util.List<PathNode> path;  // Pathfinding path to follow (not serialized)
+    private transient java.util.List<PathNode> path;  
 
-    private double movementSpeed = 0.1;  // Tiles per game tick (10 ticks/sec = 1 tile/sec)
+    private double movementSpeed = 0.1;  
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient double movementProgress = 0.0; 
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient double movementProgress = 0.0;  // Accumulated movement progress towards next tile
-
-    @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient int blockedTicks = 0;  // Number of ticks unit has been blocked by another unit
+    private transient int blockedTicks = 0;  
 
     // Resource gathering fields
-    private Long targetResourceNodeId;  // Resource node being gathered from
-    private String carryingResourceType;  // Type of resource being carried (GOLD, STONE, BERRIES, TREE)
-    private int carryingAmount = 0;  // Amount of resource being carried
-    private int carryCapacity = 10;  // Maximum amount that can be carried
-    private GatherState gatherState = GatherState.IDLE;  // Current gathering state
+    private Long targetResourceNodeId;  
+    private String carryingResourceType;  
+    private int carryingAmount = 0;  
+    private int carryCapacity = 10;  
+    private GatherState gatherState = GatherState.IDLE;  
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient int gatherTickCounter = 0;  // Counts ticks for gathering timing
+    private transient int gatherTickCounter = 0;  
 
-    // Gather slot assignment (local offset from resource node)
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient Integer assignedSlotIndex;  // Index of the slot assigned to this unit
+    private transient Integer assignedSlotIndex;  
 
-    // Staggered movement delay for squad coordination
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private transient int movementDelayTicks = 0;  // Delay before starting movement (in ticks)
+    private transient int movementDelayTicks = 0;  
 
     public enum GatherState {
-        IDLE,              // Not gathering
-        MOVING_TO_RESOURCE, // Moving to resource node
-        GATHERING,         // At resource node, gathering
-        MOVING_TO_DROPOFF, // Carrying resources, moving to drop-off
-        DEPOSITING         // At drop-off, depositing resources
+        IDLE,              
+        MOVING_TO_RESOURCE, 
+        GATHERING,         
+        MOVING_TO_DROPOFF, 
+        DEPOSITING       
     }
 
-    // No-arg constructor for Jackson deserialization
     public Unit() {
         this.id = nextId++;
     }
@@ -120,7 +116,6 @@ public class Unit {
         this.type = type;
         this.playerNumber = playerNumber;
 
-        // Set default health based on unit type
         switch (type) {
             case VILLAGER -> {
                 this.maxHealth = 50;
@@ -133,7 +128,7 @@ public class Unit {
         }
     }
 
-    // Getters and Setters
+
     public int getId() {
         return id;
     }

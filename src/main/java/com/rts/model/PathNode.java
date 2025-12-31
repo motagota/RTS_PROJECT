@@ -8,9 +8,8 @@ public class PathNode {
     private int x;
     private int y;
 
-    // For A* algorithm
-    private double gCost;  // Distance from start
-    private double hCost;  // Heuristic distance to end
+    private double gCost;  
+    private double hCost;  
     private PathNode parent;
 
     public PathNode() {

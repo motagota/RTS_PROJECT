@@ -14,8 +14,8 @@ public class GatherSlotDTO {
     private int worldY;
     private boolean occupied;
     private Integer occupierUnitId;
-    private boolean accessible; // Whether this slot is accessible (not blocked by terrain/buildings/resources)
-
+    private boolean accessible; 
+    
     public GatherSlotDTO(GatherSlot slot, int resourceX, int resourceY) {
         this.slotIndex = slot.getSlotIndex();
         this.angleRadians = slot.getAngleRadians();

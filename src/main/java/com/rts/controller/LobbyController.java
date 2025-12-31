@@ -96,7 +96,6 @@ public class LobbyController {
 
             Lobby lobby = lobbyService.updateLobbyConfig(id, maxPlayers, mapName);
 
-            // Build configuration change message
             StringBuilder configMsg = new StringBuilder("Configuration changed: ");
             if (maxPlayers != null) {
                 configMsg.append("Max players set to ").append(maxPlayers);
@@ -107,7 +106,6 @@ public class LobbyController {
             }
             configMsg.append(". All players must ready up again.");
 
-            // Send chat notification to all players in lobby
             ChatMessage chatMessage = new ChatMessage();
             chatMessage.setSender("System");
             chatMessage.setType(ChatMessage.MessageType.SYSTEM);
@@ -127,11 +125,10 @@ public class LobbyController {
         try {
             String playerName = request.get("playerName");
 
-            // Check if player is host
             boolean isHost = lobbyService.isPlayerHost(id, playerName);
 
             if (isHost) {
-                // Host is leaving - delete entire lobby and notify all players
+       
                 ChatMessage chatMessage = new ChatMessage();
                 chatMessage.setSender("System");
                 chatMessage.setType(ChatMessage.MessageType.SYSTEM);
@@ -140,15 +137,12 @@ public class LobbyController {
 
                 messagingTemplate.convertAndSend("/topic/lobby/" + id, chatMessage);
 
-                // Delete the lobby (cascade will remove all players)
                 lobbyService.deleteLobby(id);
 
                 return ResponseEntity.ok(Map.of("lobbyDeleted", true, "message", "Lobby closed"));
             } else {
-                // Regular player leaving - just remove them
                 lobbyService.removePlayer(id, playerName);
 
-                // Notify remaining players
                 ChatMessage chatMessage = new ChatMessage();
                 chatMessage.setSender(playerName);
                 chatMessage.setType(ChatMessage.MessageType.LEAVE);
@@ -175,7 +169,6 @@ public class LobbyController {
         try {
             Lobby lobby = lobbyService.addAIPlayer(id, request.getDifficulty(), request.getAiName());
 
-            // Send chat notification to all players in lobby
             String aiName = request.getAiName() != null && !request.getAiName().isEmpty()
                     ? request.getAiName()
                     : "AI Bot (" + request.getDifficulty() + ")";
@@ -199,7 +192,6 @@ public class LobbyController {
         try {
             lobbyService.removeAIPlayer(lobbyId, playerId);
 
-            // Send chat notification
             ChatMessage chatMessage = new ChatMessage();
             chatMessage.setSender("System");
             chatMessage.setType(ChatMessage.MessageType.SYSTEM);

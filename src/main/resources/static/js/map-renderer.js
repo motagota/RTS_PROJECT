@@ -39,18 +39,14 @@ class MapRenderer {
         this.hoveredUnit = null;       // Currently hovered unit
         this.hoveredResource = null;   // Currently hovered resource node
 
-        // Client-side movement interpolation
-        this.unitDisplayPositions = new Map(); // Map of unit.id -> {x, y} for smooth rendering
+        this.unitDisplayPositions = new Map(); 
         this.lastUpdateTime = Date.now();
         this.animationFrameId = null;
 
-        // Click indicators for move commands
-        this.clickIndicators = []; // Array of {x, y, startTime, duration}
+        this.clickIndicators = []; 
 
-        // Drag selection rectangle
-        this.dragRect = null; // {startX, startY, endX, endY} in pixel coordinates
+        this.dragRect = null; 
 
-        // Start animation loop
         this.startAnimationLoop();
     }
 
@@ -98,10 +94,8 @@ class MapRenderer {
             const canvasHeight = this.mapData.height * this.tileSize;
             this.setCanvasSize(canvasWidth, canvasHeight);
 
-            // Invalidate terrain cache when new map loads
-            this.terrainCached = false;
 
-            // Trigger initial render to create cache and display map
+            this.terrainCached = false;
             this.render();
 
             return this.mapData;
@@ -132,41 +126,28 @@ class MapRenderer {
         const offsetX = Math.max(0, (this.canvas.width - width * this.tileSize) / 2);
         const offsetY = Math.max(0, (this.canvas.height - height * this.tileSize) / 2);
 
-        // Render or use cached terrain layer
         if (!this.terrainCached) {
             this.renderTerrainToCache(terrainData, width, height, offsetX, offsetY);
         }
 
-        // Draw cached terrain and buildings layer
         this.ctx.drawImage(this.terrainCanvas, 0, 0);
 
-        // Render building selection/hover highlights (dynamic, not cached)
         if (this.mapData.buildings) {
             this.renderBuildingHighlights(offsetX, offsetY);
         }
-
-        // Render units (villagers, soldiers, etc) - not cached, dynamic
         if (this.mapData.units) {
             this.renderUnits(offsetX, offsetY);
         }
-
-        // Render hovered resource highlight
         if (this.hoveredResource) {
             this.renderResourceHoverHighlight(offsetX, offsetY);
         }
-
-        // Render click indicators on top of everything
         this.renderClickIndicators(offsetX, offsetY);
-
-        // Render drag selection rectangle
         this.renderDragSelection();
 
-        // Render gather slot visualization (debug mode)
         if (this.gatherSlotsToRender) {
             this.renderGatherSlots(offsetX, offsetY);
         }
 
-        // Render player starting positions
         if (this.mapData.playerStarts) {
             this.renderPlayerStarts(offsetX, offsetY);
         }
@@ -176,30 +157,26 @@ class MapRenderer {
      * Render terrain and buildings to an off-screen cache canvas
      */
     renderTerrainToCache(terrainData, width, height, offsetX, offsetY) {
-        // Size the terrain canvas to match main canvas
+ 
         this.terrainCanvas.width = this.canvas.width;
         this.terrainCanvas.height = this.canvas.height;
 
-        // Clear with black background
         this.terrainCtx.fillStyle = '#000';
         this.terrainCtx.fillRect(0, 0, this.terrainCanvas.width, this.terrainCanvas.height);
 
-        // Check if terrainData is in new format (cells array) or old format (2D array)
+        
         if (terrainData.cells) {
-            // New format: {width, height, cells: [{x, y, terrain, owner, object}, ...]}
+            
             const cells = terrainData.cells;
 
-            // Render each cell
             for (const cell of cells) {
                 const x = cell.x;
                 const y = cell.y;
                 const terrainType = cell.terrain;
 
-                // Get terrain color
                 const terrainId = this.getTerrainId(terrainType);
-                let color = this.terrainColors[terrainId] || '#2ecc71'; // Default to grass
+                let color = this.terrainColors[terrainId] || '#2ecc71'; 
 
-                // If cell has owner, use player color
                 if (cell.owner !== undefined && cell.owner !== null) {
                     color = this.playerColors ? this.playerColors[cell.owner] : color;
                 }
@@ -212,13 +189,12 @@ class MapRenderer {
                     this.tileSize
                 );
 
-                // Render object if present
                 if (cell.object) {
                     this.renderObjectToCache(x, y, cell.object, offsetX, offsetY);
                 }
             }
         } else {
-            // Old format: 2D array terrain[x][y]
+
             for (let x = 0; x < width; x++) {
                 for (let y = 0; y < height; y++) {
                     const terrainType = terrainData[x][y];
@@ -244,12 +220,10 @@ class MapRenderer {
             }
         }
 
-        // Render buildings to cache (buildings are static)
         if (this.mapData.buildings) {
             this.renderBuildingsToCache(offsetX, offsetY);
         }
 
-        // Mark as cached
         this.terrainCached = true;
     }
 
@@ -261,7 +235,7 @@ class MapRenderer {
         const pixelY = offsetY + y * this.tileSize;
 
         if (objectType === 'TREE') {
-            // Draw tree
+
             this.terrainCtx.fillStyle = '#228B22';
             this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
             this.terrainCtx.fillStyle = '#006400';
@@ -275,15 +249,15 @@ class MapRenderer {
             );
             this.terrainCtx.fill();
         } else if (objectType === 'GOLD') {
-            // Draw gold
+
             this.terrainCtx.fillStyle = '#FFD700';
             this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
         } else if (objectType === 'STONE') {
-            // Draw stone
+
             this.terrainCtx.fillStyle = '#808080';
             this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
         } else if (objectType === 'BERRIES' || objectType === 'FORAGE') {
-            // Draw berries
+
             this.terrainCtx.fillStyle = '#FF1493';
             this.terrainCtx.fillRect(pixelX, pixelY, this.tileSize, this.tileSize);
         }
@@ -312,15 +286,13 @@ class MapRenderer {
             const x = offsetX + building.x * this.tileSize;
             const y = offsetY + building.y * this.tileSize;
 
-            // Default to 2x2 for town center, 1x1 for others if width/height not specified
-            const buildingWidth = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
+             const buildingWidth = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
             const buildingHeight = building.height || (building.type === 'TOWN_CENTER' ? 2 : 1);
             const width = buildingWidth * this.tileSize;
             const height = buildingHeight * this.tileSize;
 
             const playerColor = this.getPlayerColor(building.playerNumber);
 
-            // Draw building rectangle
             this.terrainCtx.fillStyle = playerColor;
             this.terrainCtx.fillRect(x, y, width, height);
 
@@ -363,7 +335,6 @@ class MapRenderer {
             const x = offsetX + building.x * this.tileSize;
             const y = offsetY + building.y * this.tileSize;
 
-            // Use same default logic as cache rendering
             const buildingWidth = building.width || (building.type === 'TOWN_CENTER' ? 2 : 1);
             const buildingHeight = building.height || (building.type === 'TOWN_CENTER' ? 2 : 1);
 

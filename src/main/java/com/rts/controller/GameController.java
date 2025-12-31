@@ -23,10 +23,6 @@ import java.util.Map;
 /**
  * GameController - Handles game-related HTTP endpoints
  *
- * REFACTORED with proper DTOs and separation of concerns:
- * - All request bodies use DTOs with validation
- * - Business logic delegated to services
- * - Clean separation between API layer and business layer
  */
 @RestController
 @RequestMapping("/api/games")
@@ -105,7 +101,6 @@ public class GameController {
             @Valid @RequestBody PlayerStatusRequest request) {
         gameService.updatePlayerStatus(gameId, playerName, request.getStatus());
 
-        // Broadcast status update
         messagingTemplate.convertAndSend("/topic/game/" + gameId,
                 Map.of("type", "PLAYER_STATUS", "playerName", playerName, "status", request.getStatus()));
 
@@ -119,7 +114,6 @@ public class GameController {
     public ResponseEntity<Map<String, Object>> loadingTick(@PathVariable Long id) {
         HeartbeatOutcome outcome = gameService.tickGame(id);
 
-        // Handle different outcomes
         switch (outcome) {
             case PLAYER_MARKED_DISCONNECTED -> {
                 List<GamePlayer> disconnectedPlayers = gameService.getDisconnectedPlayersInGracePeriod(id);
@@ -156,11 +150,9 @@ public class GameController {
         ProductionQueueItem queueItem = gameServiceExt.enqueueUnitProduction(
                 gameId, playerName, request.getUnitType());
 
-        // Get updated resources
         GamePlayer player = gameServiceExt.getPlayerByName(gameId, playerName)
                 .orElse(null);
 
-        // Broadcast updates
         if (player != null) {
             messagingTemplate.convertAndSend("/topic/game/" + gameId,
                     Map.of("type", "RESOURCES_UPDATE",
@@ -283,7 +275,7 @@ public class GameController {
     public ResponseEntity<GatherSlotDebugDTO> getGatherSlots(
             @PathVariable Long gameId,
             @PathVariable Long resourceId) {
-        // Get all units from the map
+                
         List<Unit> allUnits = mapService.getUnitsForGame(gameId);
 
         return resourceNodeService.getGatherSlotDebugInfo(resourceId, gameId, allUnits)

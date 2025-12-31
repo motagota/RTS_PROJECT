@@ -18,8 +18,7 @@ class ProductionPanel {
         });
 
         this.eventBus.on('selection:unitsChanged', (units) => {
-            // Only hide production buttons when units are actually selected
-            // (not when clearing selection for a building)
+  
             if (units && units.length > 0) {
                 this.updateButtons(null);
             }

@@ -43,7 +43,7 @@ public class Building {
         this.y = y;
         this.type = type;
         this.playerNumber = playerNumber;
-        // Set default size based on building type
+
         if (type == BuildingType.TOWN_CENTER) {
             this.width = 2;
             this.height = 2;
@@ -126,9 +126,7 @@ public class Building {
         this.rallyPointY = rallyPointY;
     }
 
-    /**
-     * Check if a point is within the building's bounds
-     */
+
     public boolean containsPoint(int px, int py) {
         return px >= x && px < x + width && py >= y && py < y + height;
     }

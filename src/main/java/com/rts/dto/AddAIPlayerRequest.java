@@ -9,7 +9,7 @@ public class AddAIPlayerRequest {
     @Pattern(regexp = "EASY|MEDIUM|HARD", message = "Difficulty must be EASY, MEDIUM, or HARD")
     private String difficulty;
 
-    private String aiName; // Optional custom name for the AI
+    private String aiName; 
 
     public String getDifficulty() {
         return difficulty;

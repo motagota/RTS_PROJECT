@@ -21,10 +21,8 @@ class UnitInfoPanel {
                 this.update();
             }
         });
-
-        // Update when units data changes (for real-time gathering status, carrying amount, etc.)
+ 
         this.eventBus.on('network:unitsUpdate', () => {
-            // Only update if we have units selected
             const selectedUnits = this.gameState.getSelectedUnits();
             if (selectedUnits && selectedUnits.length > 0) {
                 this.update();
@@ -36,7 +34,6 @@ class UnitInfoPanel {
         const selectedUnits = this.gameState.getSelectedUnits();
         const selectedBuilding = this.gameState.getSelectedBuilding();
 
-        // Don't update if a building is selected - let BuildingInfoPanel handle it
         if (selectedBuilding) {
             return;
         }
@@ -63,7 +60,6 @@ class UnitInfoPanel {
         const unitTypeName = unit.type === 'VILLAGER' ? 'Villager' : 'Soldier';
         const healthPercent = Math.round((unit.health / unit.maxHealth) * 100);
 
-        // Determine status based on gather state and movement
         let status = 'Idle';
         if (unit.gatherState) {
             switch (unit.gatherState) {

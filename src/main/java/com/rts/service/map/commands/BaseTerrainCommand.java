@@ -17,7 +17,6 @@ public class BaseTerrainCommand implements RMSCommand {
 
         int terrainValue = getTerrainValue(terrainType);
 
-        // Fill entire map with base terrain
         for (int x = 0; x < context.getWidth(); x++) {
             for (int y = 0; y < context.getHeight(); y++) {
                 context.setTerrainAt(x, y, terrainValue);

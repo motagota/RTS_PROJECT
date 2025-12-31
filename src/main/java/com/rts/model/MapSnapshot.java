@@ -26,20 +26,11 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class MapSnapshot {
-    
-    /** 
-     * Step number ( 0 = initial , 1 = first command, etc)
-     */
+  
     private int step;
-
-    /**
-     * Human readable description of what this step did
-     */
+  
     private String description;
 
-    /**
-     *  the complete map grid at this step
-     */
     private MapGrid grid;
 
 

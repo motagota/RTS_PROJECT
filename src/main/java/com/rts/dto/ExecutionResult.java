@@ -5,7 +5,6 @@ import com.rts.model.MapSnapshot;
 /**
  * Execution result containing snapshots and AST
  * 
- * this is what gets returned from Mapexecutor.execute() and then wrapped in MapGenerationResponse to send back to the client
  */
 public class ExecutionResult {
     

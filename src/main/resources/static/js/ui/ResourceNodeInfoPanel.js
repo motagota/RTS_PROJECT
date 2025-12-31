@@ -33,11 +33,10 @@ class ResourceNodeInfoPanel {
      */
     startRefreshInterval() {
         setInterval(() => {
-            if (this.currentResourceNode) {
-                // Re-fetch the resource node data
+            if (this.currentResourceNode) {       
                 this.refreshCurrentNode();
             }
-        }, 500); // Update every 500ms
+        }, 500); 
     }
 
     /**
@@ -54,7 +53,6 @@ class ResourceNodeInfoPanel {
 
             const resourceNodes = await response.json();
 
-            // Find the matching resource node by position
             const updatedNode = resourceNodes.find(
                 node => node.x === this.currentResourceNode.x &&
                         node.y === this.currentResourceNode.y
@@ -64,11 +62,9 @@ class ResourceNodeInfoPanel {
                 this.currentResourceNode = updatedNode;
                 this.show(updatedNode);
             } else {
-                // Node no longer exists (depleted and removed)
                 this.hide();
             }
         } catch (error) {
-            // Silently fail - don't spam console
         }
     }
 
@@ -107,8 +103,7 @@ class ResourceNodeInfoPanel {
         if (!this.panel) return;
         this.panel.style.display = 'none';
         this.panel.innerHTML = '';
-
-        // Show the placeholder content again
+        
         if (this.buildingInfoContent) {
             this.buildingInfoContent.style.display = 'block';
         }
