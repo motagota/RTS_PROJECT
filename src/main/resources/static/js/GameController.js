@@ -156,7 +156,6 @@ class GameController {
         try {
             const response = await fetch(`http://localhost:8080/api/games/${this.gameState.gameId}/resources`);
             if (!response.ok) {
-                console.warn('Failed to load resource nodes:', response.status);
                 return;
             }
 
@@ -168,8 +167,6 @@ class GameController {
                 const key = `${node.x},${node.y}`;
                 this.resourceNodesMap.set(key, node);
             });
-
-            console.log(`✓ Loaded ${resourceNodes.length} resource nodes`);
         } catch (error) {
             console.error('Error loading resource nodes:', error);
         }
@@ -217,9 +214,7 @@ class GameController {
             } else {
                 // Check if a resource node was clicked (for debug panel)
                 const clickedResource = this.getResourceNodeAt(tileX, tileY);
-                console.log('Clicked at (' + tileX + ',' + tileY + '), resource found:', clickedResource);
                 if (clickedResource) {
-                    console.log('Emitting resourceNode:clicked event with:', clickedResource);
                     this.eventBus.emit('resourceNode:clicked', clickedResource);
                 } else {
                     // Emit map clicked event
@@ -266,28 +261,7 @@ class GameController {
         const resourceNode = this.getResourceNodeAt(tileX, tileY);
         const mapRenderer = this.gameState.getMapRenderer();
 
-        console.log('=== Right-click at (' + tileX + ',' + tileY + ') ===');
-        console.log('Resource node found:', resourceNode);
-        console.log('Resource nodes map size:', this.resourceNodesMap.size);
-
-        // Debug: show all resource nodes near the click
-        const nearby = [];
-        for (let dx = -2; dx <= 2; dx++) {
-            for (let dy = -2; dy <= 2; dy++) {
-                const checkX = tileX + dx;
-                const checkY = tileY + dy;
-                const node = this.getResourceNodeAt(checkX, checkY);
-                if (node) {
-                    nearby.push(`(${checkX},${checkY}): ${node.type}`);
-                }
-            }
-        }
-        if (nearby.length > 0) {
-            console.log('Nearby resources:', nearby.join(', '));
-        }
-
         if (resourceNode && !resourceNode.depleted) {
-            console.log('>>> GATHER COMMAND - Resource type:', resourceNode.type);
             // Show gather click indicator (gold color)
             mapRenderer.addClickIndicator(tileX, tileY, 'gather');
 
@@ -298,7 +272,6 @@ class GameController {
                 console.error('Failed to command resource gathering:', error);
             }
         } else {
-            console.log('>>> MOVE COMMAND - No resource at this location');
             // Show move click indicator (green color)
             mapRenderer.addClickIndicator(tileX, tileY, 'move');
 
@@ -477,7 +450,6 @@ class GameController {
      * Removes the resource visually from the map
      */
     handleResourceDepleted(data) {
-        console.log(`Resource depleted at (${data.x}, ${data.y}) - nodeId: ${data.nodeId}`);
         const mapRenderer = this.gameState.getMapRenderer();
         if (mapRenderer) {
             mapRenderer.removeResource(data.x, data.y);

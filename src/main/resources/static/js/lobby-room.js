@@ -55,9 +55,7 @@ function connectWebSocket() {
     const socket = new SockJS('http://localhost:8080/ws');
     stompClient = Stomp.over(socket);
 
-    stompClient.connect({}, function(frame) {
-        console.log('Connected: ' + frame);
-
+    stompClient.connect({}, function() {
         // Subscribe to lobby-specific chat
         stompClient.subscribe(`/topic/lobby/${lobbyId}`, function(message) {
             const chatMessage = JSON.parse(message.body);
@@ -374,8 +372,7 @@ async function startGame() {
 
         if (!response.ok) throw new Error('Failed to start game');
 
-        const game = await response.json();
-        console.log('Game started:', game);
+        await response.json();
 
         // The WebSocket will handle the redirect via GAME_START message
 

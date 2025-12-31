@@ -1069,19 +1069,7 @@ class MapRenderer {
      */
     updateUnits(units) {
         if (!this.mapData) {
-            console.warn('Cannot update units: map data not loaded');
             return;
-        }
-
-        // Debug: Log received unit data
-        const firstUnit = units.find(u => u.targetX != null && u.targetY != null);
-        if (firstUnit) {
-            console.log('=== Received unit update ===');
-            console.log('Unit ID:', firstUnit.id);
-            console.log('Position:', firstUnit.x, firstUnit.y);
-            console.log('Target:', firstUnit.targetX, firstUnit.targetY);
-            console.log('GatherState:', firstUnit.gatherState);
-            console.log('Carrying:', firstUnit.carryingAmount, '/', firstUnit.carryCapacity, firstUnit.carryingResourceType);
         }
 
         // Update selected units to maintain selection through position changes
@@ -1110,11 +1098,8 @@ class MapRenderer {
      */
     removeResource(x, y) {
         if (!this.mapData || !this.mapData.terrainData) {
-            console.warn('Cannot remove resource: map data not loaded');
             return;
         }
-
-        console.log(`Removing resource at (${x}, ${y})`);
 
         // Parse terrain data if it's a string
         let terrainData = this.mapData.terrainData;
@@ -1129,12 +1114,9 @@ class MapRenderer {
             if (cell) {
                 // Remove the object from the cell (which is the resource)
                 cell.object = null;
-                console.log(`Removed resource object from cell (${x}, ${y})`);
 
                 // Invalidate terrain cache to force re-render
                 this.terrainCached = false;
-            } else {
-                console.warn(`No cell found at (${x}, ${y})`);
             }
         }
     }
